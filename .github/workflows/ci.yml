@@ -32,9 +32,13 @@ jobs:
           $out = Join-Path $env:RUNNER_TEMP "selftest"
           $p = Start-Process -FilePath "publish\VisaryPRSNT.exe" -ArgumentList "--selftest", "`"$out`"" -PassThru
           if (-not $p.WaitForExit(900000)) { $p.Kill(); Write-Error "Self test timed out" }
-          if (Test-Path "$out\report.txt") { Get-Content "$out\report.txt" } else { Write-Host "No report written" }
+          if (Test-Path "$out\report.txt") { Get-Content "$out\report.txt" } else { Write-Host "No report written (exit code $($p.ExitCode))" }
           $log = Join-Path $env:LOCALAPPDATA "VisaryPRSNT\visary.log"
           if (Test-Path $log) { Write-Host "---- log ----"; Get-Content $log -Tail 80 }
+          if ($p.ExitCode -ne 0) {
+            Write-Host "---- recent application errors ----"
+            Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Level = 2; StartTime = (Get-Date).AddMinutes(-20) } -MaxEvents 6 -ErrorAction SilentlyContinue | ForEach-Object { $_.TimeCreated; $_.ProviderName; $_.Message; "" }
+          }
           Copy-Item -Recurse -Force $out selftest-output -ErrorAction SilentlyContinue
           exit $p.ExitCode
       - name: Upload self test output

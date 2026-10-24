@@ -8,6 +8,9 @@ public partial class App : Application
 
     public App()
     {
+        Shell.Log.Info($"Starting {string.Join(' ', Environment.GetCommandLineArgs())}");
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => Shell.Log.Error("AppDomain", e.ExceptionObject as Exception);
+        TaskScheduler.UnobservedTaskException += (_, e) => { Shell.Log.Error("Task", e.Exception); e.SetObserved(); };
         InitializeComponent();
         UnhandledException += (_, e) =>
         {
@@ -20,8 +23,18 @@ public partial class App : Application
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         var argv = Environment.GetCommandLineArgs().Skip(1).ToArray();
-        Main = new MainWindow();
-        Main.Activate();
+        try
+        {
+            Main = new MainWindow();
+            Shell.Log.Info("Main window created");
+            Main.Activate();
+            Shell.Log.Info("Main window activated");
+        }
+        catch (Exception ex)
+        {
+            Shell.Log.Error("Startup", ex);
+            throw;
+        }
         var selfTest = Array.IndexOf(argv, "--selftest");
         if (selfTest >= 0)
         {
