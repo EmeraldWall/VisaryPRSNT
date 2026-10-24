@@ -26,6 +26,9 @@ jobs:
           dotnet-version: 10.0.x
       - name: Build
         run: dotnet publish src/Visary.App/Visary.App.csproj -c Release -r win-x64 -p:Platform=x64 -o publish
+      - name: List resource files
+        shell: pwsh
+        run: Get-ChildItem publish -Filter *.pri | Format-Table Name, Length
       - name: Startup smoke test per UI part
         continue-on-error: true
         shell: pwsh

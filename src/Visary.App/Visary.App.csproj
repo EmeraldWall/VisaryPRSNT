@@ -12,6 +12,8 @@
     <UseWinUI>true</UseWinUI>
     <WindowsPackageType>None</WindowsPackageType>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <!-- Generates resources.pri with WinUI's control templates (NumberBox, DropDownButton, ColorPicker...). -->
+    <EnableMsixTooling>true</EnableMsixTooling>
     <ApplicationIcon>Assets\Visary.ico</ApplicationIcon>
     <Product>Visary PRSNT</Product>
     <SelfContained Condition="'$(RuntimeIdentifier)' != ''">true</SelfContained>
