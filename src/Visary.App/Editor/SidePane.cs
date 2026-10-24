@@ -54,6 +54,13 @@ public sealed partial class SidePane : Grid
             Build();
             return;
         }
+        var t = _ed.Current.Transition;
+        var effectKey = $"{_ed.Current.Id}|{t.Effect}|{t.Variant}|{t.AdvanceAfterSeconds != null}|{_ed.Current.Builds.Count}";
+        if (effectKey != _effectKey && _mode is PaneMode.Transitions or PaneMode.Animations)
+        {
+            Build();
+            return;
+        }
         if (k.HasFlag(ChangeKind.Content) || k.HasFlag(ChangeKind.Slides))
         {
             // Refresh values in place so a slider being dragged keeps its focus.
@@ -80,8 +87,12 @@ public sealed partial class SidePane : Grid
         }
     }
 
+    string _effectKey = "";
+
     void Build()
     {
+        var tr = _ed.Current.Transition;
+        _effectKey = $"{_ed.Current.Id}|{tr.Effect}|{tr.Variant}|{tr.AdvanceAfterSeconds != null}|{_ed.Current.Builds.Count}";
         Tabs();
         _refreshers.Clear();
         var body = new StackPanel { Spacing = 0 };

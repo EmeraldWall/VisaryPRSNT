@@ -69,6 +69,8 @@ public sealed class TransitionPlayer(Compositor compositor)
         var duration = TimeSpan.FromMilliseconds(Math.Max(1, plan.DurationMs));
         var root = _c.CreateContainerVisual();
         root.Size = new Vector2(W, H);
+        // Glows and light bands are larger than the slide; keep every effect inside the slide.
+        root.Clip = _c.CreateInsetClip();
         var center = new Vector3(W / 2, H / 2, 0);
         var perspective = Matrix4x4.Identity;
         perspective.M34 = -1f / (float)plan.Perspective;
