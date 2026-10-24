@@ -18,6 +18,7 @@ namespace Visary.App;
 
 public sealed partial class MainWindow : Window
 {
+    readonly Grid Root = new();
     readonly Grid _titleBar = new() { Height = 40 };
     readonly TextBlock _title = new() { FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
     readonly TextBlock _status = new() { FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
@@ -40,7 +41,7 @@ public sealed partial class MainWindow : Window
 
     public MainWindow()
     {
-        InitializeComponent();
+        Content = Root;
         Title = "Visary PRSNT";
         Commands.Owner = this;
         ExtendsContentIntoTitleBar = true;

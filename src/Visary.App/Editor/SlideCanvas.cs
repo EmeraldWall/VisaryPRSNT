@@ -236,7 +236,7 @@ public sealed partial class SlideCanvas : Grid
 
     SlideElement? HitTest(Point p) => _ed.Current.Elements.LastOrDefault(e => Contains(e, p));
 
-    static bool KeyDown(Windows.System.VirtualKey k) => InputKeyboardSource.GetKeyStateForCurrentThread(k).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+    static bool IsKeyDown(Windows.System.VirtualKey k) => InputKeyboardSource.GetKeyStateForCurrentThread(k).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
 
     void OnPressed(object sender, PointerRoutedEventArgs e)
     {
@@ -249,7 +249,7 @@ public sealed partial class SlideCanvas : Grid
             EndTextEdit(commit: true);
         }
         Focus(FocusState.Pointer);
-        var shift = KeyDown(Windows.System.VirtualKey.Shift) || KeyDown(Windows.System.VirtualKey.Control);
+        var shift = IsKeyDown(Windows.System.VirtualKey.Shift) || IsKeyDown(Windows.System.VirtualKey.Control);
         if (hit == null)
         {
             if (!shift) _ed.ClearSelection();
@@ -298,7 +298,7 @@ public sealed partial class SlideCanvas : Grid
     {
         if (_gesture == null) return;
         var p = Logical(e);
-        var shift = KeyDown(Windows.System.VirtualKey.Shift);
+        var shift = IsKeyDown(Windows.System.VirtualKey.Shift);
         switch (_gesture)
         {
             case MoveGesture g:

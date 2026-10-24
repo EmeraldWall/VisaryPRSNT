@@ -54,6 +54,10 @@ public sealed partial class SlideShowWindow : Window
         _root.Content = _grid;
         Content = _root;
 
+        _idle = DispatcherQueue.GetForCurrentThread().CreateTimer();
+        _idle.Interval = TimeSpan.FromSeconds(2.5);
+        _idle.IsRepeating = false;
+        _idle.Tick += (_, _) => _controls.Opacity = 0;
         _root.KeyDown += OnKey;
         _root.Tapped += (_, e) =>
         {
@@ -72,10 +76,6 @@ public sealed partial class SlideShowWindow : Window
                 _laser.Margin = new Thickness(p.X - 8, p.Y - 8, 0, 0);
             }
         };
-        _idle = DispatcherQueue.GetForCurrentThread().CreateTimer();
-        _idle.Interval = TimeSpan.FromSeconds(2.5);
-        _idle.IsRepeating = false;
-        _idle.Tick += (_, _) => _controls.Opacity = 0;
 
         _show.StateChanged += OnState;
         _show.EndRequested += Close;

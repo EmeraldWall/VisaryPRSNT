@@ -120,7 +120,7 @@ public sealed partial class Ribbon : Grid
                 case RibbonTab.Home: Home(row); break;
                 case RibbonTab.Insert: Insert(row); break;
                 case RibbonTab.Design: Design(row); break;
-                case RibbonTab.Transitions: Transitions(row); break;
+                case RibbonTab.Transitions: TransitionsTab(row); break;
                 case RibbonTab.Animations: Animations(row); break;
                 case RibbonTab.SlideShow: SlideShow(row); break;
                 case RibbonTab.View: View(row); break;
@@ -278,7 +278,7 @@ public sealed partial class Ribbon : Grid
             Ui.Large("", "Format background", () => _w.Side.Mode = PaneMode.Design)));
     }
 
-    void Transitions(StackPanel row)
+    void TransitionsTab(StackPanel row)
     {
         var t = Ed.Current.Transition;
         _lastTransitionKey = $"{Ed.Current.Id}|{t.Effect}|{t.Variant}|{t.Ease}|{t.Intensity}|{t.AdvanceOnClick}|{t.AdvanceAfterSeconds != null}";
