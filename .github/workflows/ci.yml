@@ -37,6 +37,16 @@ jobs:
             if (-not $p.WaitForExit(30000)) { $p.Kill(); $code = "timeout" } else { $code = $p.ExitCode }
             Write-Host ("{0,-50} exit {1}" -f $part, $code)
           }
+          $env:VISARY_ONLY = "ribbon"; $env:VISARY_NOACCENT = "1"
+          $p = Start-Process -FilePath "publish\VisaryPRSNT.exe" -ArgumentList "--smoke" -PassThru
+          $p.WaitForExit(30000) | Out-Null
+          Write-Host ("{0,-50} exit {1}" -f "ribbon without accent override", $p.ExitCode)
+          $env:VISARY_NOACCENT = ""
+          foreach ($c in @("colorbutton","combo","editablecombo","numberbox","slider","menu","splitbutton","toggle","check","dropdown","colorpicker","expander","group","section","accentbutton")) {
+            $p = Start-Process -FilePath "publish\VisaryPRSNT.exe" -ArgumentList "--smoke-control", $c -PassThru
+            if (-not $p.WaitForExit(30000)) { $p.Kill(); $code = "timeout" } else { $code = $p.ExitCode }
+            Write-Host ("control {0,-42} exit {1}" -f $c, $code)
+          }
           $env:VISARY_ONLY = ""
           $p = Start-Process -FilePath "publish\VisaryPRSNT.exe" -ArgumentList "--smoke" -PassThru
           $p.WaitForExit(30000) | Out-Null

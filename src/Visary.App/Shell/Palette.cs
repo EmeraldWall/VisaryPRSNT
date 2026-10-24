@@ -61,7 +61,7 @@ public static class Palette
 
         // Tint WinUI's own accent coloured controls (toggle switches, sliders, focus) to match.
         var res = Application.Current?.Resources;
-        if (res != null)
+        if (res != null && Environment.GetEnvironmentVariable("VISARY_NOACCENT") != "1")
         {
             var accent = ColorUtil.Parse(p.Accent);
             foreach (var key in new[] { "SystemAccentColor", "SystemAccentColorLight1", "SystemAccentColorLight2", "SystemAccentColorDark1", "SystemAccentColorDark2" })
