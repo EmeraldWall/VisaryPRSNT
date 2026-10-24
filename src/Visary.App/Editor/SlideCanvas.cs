@@ -55,11 +55,8 @@ public sealed partial class SlideCanvas : Grid
     {
         _ed = ed;
         Background = Palette.Canvas;
-        if (MainWindow.Part("shadow"))
-        {
-            _paper.Shadow = new ThemeShadow();
-            _paper.Translation = new System.Numerics.Vector3(0, 0, 24);
-        }
+        _paper.Shadow = new ThemeShadow();
+        _paper.Translation = new System.Numerics.Vector3(0, 0, 24);
         _page.Children.Add(_paper);
         _page.Children.Add(_scaled);
         _page.Children.Add(_adorners);

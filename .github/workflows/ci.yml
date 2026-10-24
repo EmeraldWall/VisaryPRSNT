@@ -26,34 +26,6 @@ jobs:
           dotnet-version: 10.0.x
       - name: Build
         run: dotnet publish src/Visary.App/Visary.App.csproj -c Release -r win-x64 -p:Platform=x64 -o publish
-      - name: List resource files
-        shell: pwsh
-        run: Get-ChildItem publish -Filter *.pri | Format-Table Name, Length
-      - name: Startup smoke test per UI part
-        continue-on-error: true
-        shell: pwsh
-        run: |
-          $parts = @("none", "title", "ribbon", "slides", "canvas", "notes", "side", "status", "shadow", "title,ribbon,slides,canvas,notes,side,status")
-          foreach ($part in $parts) {
-            $env:VISARY_ONLY = $part
-            $p = Start-Process -FilePath "publish\VisaryPRSNT.exe" -ArgumentList "--smoke" -PassThru
-            if (-not $p.WaitForExit(30000)) { $p.Kill(); $code = "timeout" } else { $code = $p.ExitCode }
-            Write-Host ("{0,-50} exit {1}" -f $part, $code)
-          }
-          $env:VISARY_ONLY = "ribbon"; $env:VISARY_NOACCENT = "1"
-          $p = Start-Process -FilePath "publish\VisaryPRSNT.exe" -ArgumentList "--smoke" -PassThru
-          $p.WaitForExit(30000) | Out-Null
-          Write-Host ("{0,-50} exit {1}" -f "ribbon without accent override", $p.ExitCode)
-          $env:VISARY_NOACCENT = ""
-          foreach ($c in @("colorbutton","combo","editablecombo","numberbox","slider","menu","splitbutton","toggle","check","dropdown","colorpicker","expander","group","section","accentbutton")) {
-            $p = Start-Process -FilePath "publish\VisaryPRSNT.exe" -ArgumentList "--smoke-control", $c -PassThru
-            if (-not $p.WaitForExit(30000)) { $p.Kill(); $code = "timeout" } else { $code = $p.ExitCode }
-            Write-Host ("control {0,-42} exit {1}" -f $c, $code)
-          }
-          $env:VISARY_ONLY = ""
-          $p = Start-Process -FilePath "publish\VisaryPRSNT.exe" -ArgumentList "--smoke" -PassThru
-          $p.WaitForExit(30000) | Out-Null
-          Write-Host ("{0,-50} exit {1}" -f "everything", $p.ExitCode)
       - name: Self test (drives the real UI and every transition)
         shell: pwsh
         run: |
@@ -69,30 +41,6 @@ jobs:
           }
           Copy-Item -Recurse -Force $out selftest-output -ErrorAction SilentlyContinue
           exit $p.ExitCode
-      - name: Print screenshot previews (temporary)
-        if: always()
-        shell: pwsh
-        run: |
-          Add-Type -AssemblyName System.Drawing
-          foreach ($n in @("tr-aurora", "tr-sweep", "tr-depth", "tr-glide", "tr-morph", "tr-cascade", "tr-focus")) {
-            $f = Join-Path $env:RUNNER_TEMP "selftest\$n.png"
-            if (-not (Test-Path $f)) { Write-Host "missing $n"; continue }
-            $img = [System.Drawing.Image]::FromFile($f)
-            $w = 820; $h = [int]($img.Height * $w / $img.Width)
-            $bmp = New-Object System.Drawing.Bitmap $w, $h
-            $g = [System.Drawing.Graphics]::FromImage($bmp)
-            $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-            $g.DrawImage($img, 0, 0, $w, $h)
-            $codec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq "image/jpeg" }
-            $ep = New-Object System.Drawing.Imaging.EncoderParameters 1
-            $ep.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter ([System.Drawing.Imaging.Encoder]::Quality, [long]62)
-            $ms = New-Object System.IO.MemoryStream
-            $bmp.Save($ms, $codec, $ep)
-            $b64 = [Convert]::ToBase64String($ms.ToArray())
-            Write-Host "IMGBEGIN $n"
-            for ($i = 0; $i -lt $b64.Length; $i += 3000) { Write-Host ("IMG " + $b64.Substring($i, [Math]::Min(3000, $b64.Length - $i))) }
-            Write-Host "IMGEND $n"
-          }
       - name: Upload self test output
         if: always()
         uses: actions/upload-artifact@v4
