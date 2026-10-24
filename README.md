@@ -41,13 +41,13 @@ How they stay elegant:
 
 ## Build and run
 
-Requirements: Windows 10 1809 or later, Visual Studio 2022 or 2026 with the ".NET desktop development" and "Windows application development" workloads, or just the .NET 10 SDK.
+Requirements: Windows 10 1809 or later and Visual Studio 2022 (17.12 or later) or Visual Studio 2026 with the ".NET desktop development" and "WinUI application development" workloads, plus the .NET 10 SDK.
 
-```powershell
-dotnet run --project src/Visary.App -c Debug -p:Platform=x64
-```
+1. Open `VisaryPRSNT.slnx`.
+2. Set `Visary.App` as the startup project.
+3. Pick the `x64` platform (or `ARM64` on an ARM PC) and press F5.
 
-Or open `VisaryPRSNT.slnx` in Visual Studio, set `Visary.App` as the startup project, pick x64 and press F5.
+The `Visary PRSNT (self test)` launch profile runs the built in UI self test and writes `report.txt` to `%TEMP%\visary-selftest`.
 
 To make a self contained build you can copy to any PC:
 
@@ -55,15 +55,13 @@ To make a self contained build you can copy to any PC:
 dotnet publish src/Visary.App -c Release -r win-x64 -p:Platform=x64 -o publish
 ```
 
-Every push also builds the app on GitHub Actions and uploads it as the `VisaryPRSNT-win-x64` artifact.
-
 ## Tests
 
 ```bash
 dotnet test tests/Visary.Core.Tests
 ```
 
-The core library (model, file format, editing commands, transition planner, PowerPoint export) is plain .NET and is tested on any OS, including schema validation of exported `.pptx` files. On Windows, `VisaryPRSNT.exe --selftest <folder>` drives the real app: it plays every transition variant through the GPU player, exercises every pane and ribbon tab, runs the slide show, saves, reopens and exports, then writes `report.txt`. CI runs it on every push.
+The core library (model, file format, editing commands, transition planner, PowerPoint export) is plain .NET and is tested on any OS, including schema validation of exported `.pptx` files. On Windows, `VisaryPRSNT.exe --selftest <folder>` drives the real app: it plays every transition variant through the GPU player, exercises every pane and ribbon tab, runs the slide show, saves, reopens and exports, then writes `report.txt`.
 
 ## Project layout
 

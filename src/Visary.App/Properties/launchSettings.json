@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "Visary PRSNT": {
+      "commandName": "Project",
+      "nativeDebugging": false
+    },
+    "Visary PRSNT (self test)": {
+      "commandName": "Project",
+      "commandLineArgs": "--selftest \"%TEMP%\\visary-selftest\""
+    }
+  }
+}
