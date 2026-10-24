@@ -1,82 +1,79 @@
 # Visary PRSNT
 
-A presentation editor that runs in the browser, built to cover the everyday feature set of PowerPoint, Google Slides, Canva and LibreOffice Impress, with a large library of slide transitions and object animations.
+A presentation app for Windows, built with WinUI 3 and the Windows App SDK. It looks and works like PowerPoint, and its point of difference is transitions: a library of modern, cinematic transitions rendered on the GPU with Windows Composition.
 
-## Run it
+## Signature transitions
 
-```bash
-npm install
-npm run dev        # http://localhost:5173
-npm run build      # production build in dist/
-npm test           # unit tests
+25 transitions in six families. Every one has a duration, a motion feel (Smooth, Fluid, Snappy, Spring, Linear) and an intensity (Subtle, Balanced, Bold), and most have effect options.
+
+| Family | Transitions |
+| --- | --- |
+| Essentials | Fade, **Silk** (crossfade through a whisper of blur and a slow zoom), **Drift** (cinematic push in) |
+| Motion | **Glide** (parallax, the old slide sinks back), **Velocity** (push with motion blur), **Stack** (lands like a card), **Ribbon** (two halves meet), **Panels** (the old slide lifts away in panels), **Float** |
+| Depth | **Depth** (the old slide recedes into the dark), **Portal** (fly through), **Orbit** (3D swing), **Focus pull** (camera rack focus), **Frost** (frosted glass) |
+| Light | **Light sweep** (a band of light rides a feathered edge), **Aurora** (blooms open, haloed in the theme colour), **Bloom**, **Spotlight**, **Cinematic** (film letterbox) |
+| Reveal | **Feather** (wide soft wipe), **Shutter**, **Mosaic** (tiles surface in a wave) |
+| Smart | **Cascade** (objects leave and arrive one by one in reading order), **Morph** (objects on both slides glide, resize and turn into place) |
+
+How they stay elegant:
+
+* The old slide is never faded out underneath the new one, so there is no dip to black mid-transition.
+* Every transition is tested to start exactly on the old slide and land exactly on the new one, with no leftover blur, offset, mask or overlay, for every variant, motion and intensity.
+* Blur, saturation and exposure use Win2D effects, reveals use feathered gradient masks, depth uses a real perspective transform, and everything runs on the compositor thread so it stays smooth.
+
+## Editor
+
+* PowerPoint style ribbon (File, Home, Insert, Design, Transitions, Animations, Slide Show, View), slide thumbnails with drag to reorder, notes, status bar with zoom
+* App colours similar to PowerPoint by default, with 9 Office themes to choose from (PowerPoint colourful, PowerPoint white, Dark gray, Black, Midnight, Ocean, Forest, Lavender, Graphite and gold)
+* Text boxes, 25 shapes, lines and arrows, pictures (insert or drag and drop), with fills, gradients, outlines, corner radius, fonts, bullets and numbering
+* Select, multi select, marquee, move with smart guides, resize, rotate, align, distribute, arrange, lock, copy, paste, duplicate, undo and redo, find and replace
+* 10 slide design themes using fonts that ship with Windows, 8 layouts, gradient and picture backgrounds, 5 slide sizes
+* 18 object animations (entrance, emphasis, exit) with On click, With previous and After previous timing
+
+## Slide show
+
+* Full screen show, presenter view on a second screen (current and next slide, notes, timer), keyboard and mouse navigation, black and white screen, laser pointer, loop, automatic timings
+
+## Files
+
+* Saves `.vsry` files (a zip with the presentation and its pictures), with recent files and auto recovery
+* Exports to PowerPoint `.pptx`. Each signature transition becomes its closest PowerPoint transition, and Morph stays Morph because objects keep matching names
+
+## Build and run
+
+Requirements: Windows 10 1809 or later, Visual Studio 2022 or 2026 with the ".NET desktop development" and "Windows application development" workloads, or just the .NET 10 SDK.
+
+```powershell
+dotnet run --project src/Visary.App -c Debug -p:Platform=x64
 ```
 
-The build is a static site (no server needed), so `dist/` can be hosted anywhere, including GitHub Pages.
+Or open `VisaryPRSNT.slnx` in Visual Studio, set `Visary.App` as the startup project, pick x64 and press F5.
 
-## Features
+To make a self contained build you can copy to any PC:
 
-### Slide transitions (59 effects, 163 variants)
+```powershell
+dotnet publish src/Visary.App -c Release -r win-x64 -p:Platform=x64 -o publish
+```
 
-Every transition has effect options (direction or variant), duration, easing (smooth, decelerate, accelerate, linear, overshoot, bounce), advance on click, advance automatically after N seconds, and Apply to all slides. Hovering a tile in the Transitions pane plays a live mini preview, and clicking it previews the effect on your real slides.
+Every push also builds the app on GitHub Actions and uploads it as the `VisaryPRSNT-win-x64` artifact.
 
-| Group | Transitions |
-| --- | --- |
-| Subtle | Fade (smooth, through black, through white), Push, Wipe, Soft wipe, Split, Reveal, Random bars, Shape (circle, diamond, plus, in and out), Uncover, Cover, Flash, Dissolve, Morph |
-| Exciting | Fall over, Drape, Curtains, Wind, Prestige, Fracture, Crush, Peel off, Page curl (single or double), Airplane, Origami, Checkerboard, Blinds, Clock (clockwise, counterclockwise, wedge), Wheel (1 to 8 spokes), Ripple, Honeycomb, Glitter (diamonds or hexagons), Vortex, Shred (strips or particles), Switch, Flip, Gallery, Cube, Box, Doors, Comb, Zoom (in, out, zoom and rotate), Strips, TV static, Tile flip |
-| Dynamic content | Pan, Ferris wheel, Conveyor, Rotate, Window, Orbit, Fly through (with optional bounce) |
-| Creative | Colour wipe, Line wipe, Stack, Chop, Blur, Iris, Rochade, Random |
+## Tests
 
-**Morph** pairs objects that appear on both slides (by object, or by the name you give an object in the Format pane) and animates position, size, rotation and appearance between them. Duplicating a slide keeps object identities, so the usual PowerPoint workflow works. Duplicate, move things, apply Morph.
+```bash
+dotnet test tests/Visary.Core.Tests
+```
 
-### Object animations (76 effects)
-
-* **Entrance (24)**: Appear, Fade, Fly in, Float in, Split, Wipe, Shape, Wheel, Random bars, Grow and turn, Zoom, Swivel, Bounce, Drop, Pop, Spin in, Flip, Rise up, Blur, Expand, Stretch, Typewriter, Pan, Elastic
-* **Emphasis (20)**: Pulse, Colour pulse, Teeter, Spin, Grow or shrink, Shake, Heartbeat, Wobble, Flicker, Blink, Transparency, Desaturate, Darken, Lighten, Bold flash, Jello, Wave, Swing, Rubber band, Glow
-* **Exit (24)**: the mirror of every entrance effect
-* **Motion paths (8)**: Line (5 directions), Arc, Circle, Loop de loop, Zigzag, Sine wave, Spiral, Bounce
-
-Each animation has a trigger (on click, with previous, after previous), duration, delay, repeat count, easing and direction. The Animation pane lists the order with step numbers, lets you reorder or remove effects, and Preview plays them on the canvas.
-
-### Editing
-
-* Text boxes with rich text (font, size, colour, highlight, bold, italic, underline, strike, alignment, bullets, numbering, line and letter spacing, vertical alignment), spell check, find and replace
-* 34 shapes (basic, arrows, stars, callouts, lines with arrowheads), with text inside, solid or gradient fills, outlines, corner radius
-* Pictures (upload, paste, drag and drop, or by URL) with crop to fill, rounded corners, borders and Canva style filter presets plus manual brightness, contrast, saturation, greyscale, sepia, hue and blur
-* Tables with header and banded rows, charts (column, bar, line, area, pie, doughnut) with editable data, emoji, slide number fields, YouTube, Vimeo or file videos, hyperlinks to web pages or other slides
-* Move, resize (rotation aware, Shift keeps proportions), rotate (Shift snaps to 15 degrees), multi select, marquee select, smart guides and snapping, gridlines, nudge with arrow keys
-* Group and ungroup, lock, align and distribute, bring forward or send back, flip, drop shadow, opacity, format painter, copy and paste between slides and decks, unlimited undo and redo
-* Layouts (title, title and content, section header, two content, comparison, title only, picture with caption, quote, big number, blank), 10 themes, gradient and picture backgrounds, slide sizes (16:9, 4:3, 16:10, square, story, A4)
-* Slide panel with drag to reorder, slide sorter view, hidden slides, speaker notes, zoom, light and dark app theme, right click menus and keyboard shortcuts
-
-### Presenting
-
-* Full screen slide show from the beginning or the current slide, keyboard, click and right click navigation, type a number and Enter to jump
-* Pen with colours and erase, laser pointer, black or white screen, slide overview grid, loop until Esc, automatic advance timings, clickable links
-* Presenter view in a second window with current and next slide, notes with adjustable size, timer with pause and reset, clock, and remote control of the main show
-
-### Files
-
-* Autosaves in the browser (IndexedDB), with a start screen listing your presentations and templates
-* Save and open `.visary.json` files
-* Export to **PowerPoint (.pptx)** with text, shapes, pictures, tables, native charts, notes, links, hidden slides and native PowerPoint transitions, including Morph
-* Export to **PDF** or print, one slide per page
-
-## Known gaps compared with the desktop suites
-
-These are not implemented yet, and are good candidates for future work.
-
-* Importing `.pptx`, `.odp` or Google Slides files (only the app's own JSON format can be opened)
-* Real time multi user collaboration and comments (Google Slides and Canva need a backend for this)
-* Object animations are not written into the PowerPoint export (transitions are), and gradient backgrounds export as their first colour
-* Audio, slide masters you can edit, SmartArt, equations, 3D models, and image cropping by hand
+The core library (model, file format, editing commands, transition planner, PowerPoint export) is plain .NET and is tested on any OS, including schema validation of exported `.pptx` files. On Windows, `VisaryPRSNT.exe --selftest <folder>` drives the real app: it plays every transition variant through the GPU player, exercises every pane and ribbon tab, runs the slide show, saves, reopens and exports, then writes `report.txt`. CI runs it on every push.
 
 ## Project layout
 
 ```
-src/model      data types, themes, layouts, shape geometry
-src/store      document store with undo and redo
-src/render     slide and element rendering shared by editor, thumbnails, show and print
-src/editor     editor UI (canvas, ribbon, panes, dialogs)
-src/present    transition engine, animation engine, slide show, presenter view
-src/io         browser storage, JSON files, PowerPoint export
+src/Visary.Core        model, themes, editing commands, transition planner, file format, PowerPoint export
+src/Visary.App         WinUI 3 app: ribbon, panes, canvas, Composition transition player, slide show
+tests/Visary.Core.Tests
 ```
+
+## Not done yet
+
+* Opening `.pptx` files, rich text with mixed formatting inside one text box, tables, charts, video and audio
+* Object animations are not written to `.pptx` (transitions are)

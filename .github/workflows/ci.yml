@@ -3,16 +3,50 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 jobs:
-  build:
+  core:
+    name: Core library tests (Linux)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-dotnet@v4
         with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm test
-      - run: npm run build
+          dotnet-version: 10.0.x
+      - run: dotnet test tests/Visary.Core.Tests -c Release
+
+  windows:
+    name: WinUI 3 app build and self test (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build
+        run: dotnet publish src/Visary.App/Visary.App.csproj -c Release -r win-x64 -p:Platform=x64 -o publish
+      - name: Self test (drives the real UI and every transition)
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP "selftest"
+          $p = Start-Process -FilePath "publish\VisaryPRSNT.exe" -ArgumentList "--selftest", "`"$out`"" -PassThru
+          if (-not $p.WaitForExit(900000)) { $p.Kill(); Write-Error "Self test timed out" }
+          if (Test-Path "$out\report.txt") { Get-Content "$out\report.txt" } else { Write-Host "No report written" }
+          $log = Join-Path $env:LOCALAPPDATA "VisaryPRSNT\visary.log"
+          if (Test-Path $log) { Write-Host "---- log ----"; Get-Content $log -Tail 80 }
+          Copy-Item -Recurse -Force $out selftest-output -ErrorAction SilentlyContinue
+          exit $p.ExitCode
+      - name: Upload self test output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: selftest-output
+          path: selftest-output
+          if-no-files-found: ignore
+      - name: Upload app
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: VisaryPRSNT-win-x64
+          path: publish

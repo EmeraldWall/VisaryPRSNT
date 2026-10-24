@@ -1,0 +1,13 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="ARM64" />
+  </Configurations>
+  <Folder Name="/src/">
+    <Project Path="src/Visary.Core/Visary.Core.csproj" />
+    <Project Path="src/Visary.App/Visary.App.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Visary.Core.Tests/Visary.Core.Tests.csproj" />
+  </Folder>
+</Solution>
