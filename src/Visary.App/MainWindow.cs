@@ -63,6 +63,12 @@ public sealed partial class MainWindow : Window
 
     /* ---------------- layout ---------------- */
 
+    /// <summary>Diagnostics: VISARY_ONLY=ribbon,side,... builds only the listed parts.</summary>
+    static readonly HashSet<string>? Only = Environment.GetEnvironmentVariable("VISARY_ONLY") is { Length: > 0 } v
+        ? v.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToHashSet() : null;
+
+    public static bool Part(string name) => Only == null || Only.Contains(name);
+
     void BuildLayout()
     {
         Root.RequestedTheme = Palette.ElementTheme;
@@ -113,30 +119,30 @@ public sealed partial class MainWindow : Window
         present.Click += (_, _) => StartShow(Editor.CurrentIndex);
         Grid.SetColumn(present, 2);
         _titleBar.Children.Add(present);
-        Root.Children.Add(_titleBar);
+        if (Part("title")) Root.Children.Add(_titleBar);
 
         Side = new SidePane(Editor);
         Canvas = new SlideCanvas(Editor);
         Slides = new SlidesPane(Editor);
         _ribbon = new Ribbon(this);
         Grid.SetRow(_ribbon, 1);
-        Root.Children.Add(_ribbon);
+        if (Part("ribbon")) Root.Children.Add(_ribbon);
         Side.PreviewTransition = Canvas.PreviewTransitionAsync;
         Side.PreviewBuilds = Canvas.PreviewBuildsAsync;
 
         _workspace.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(212) });
         _workspace.ColumnDefinitions.Add(new ColumnDefinition());
         _workspace.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        _workspace.Children.Add(Slides);
+        if (Part("slides")) _workspace.Children.Add(Slides);
         _center.RowDefinitions.Add(new RowDefinition());
         _center.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        _center.Children.Add(Canvas);
+        if (Part("canvas")) _center.Children.Add(Canvas);
         _notesHost.Child = _notes;
         _notesHost.BorderBrush = Palette.Border;
         _notesHost.Background = Palette.PaneAlt;
         _notes.Background = Palette.PaneAlt;
         Grid.SetRow(_notesHost, 1);
-        _center.Children.Add(_notesHost);
+        if (Part("notes")) _center.Children.Add(_notesHost);
         _notesHost.Visibility = Settings.Current.ShowNotes ? Visibility.Visible : Visibility.Collapsed;
         _notes.TextChanged += (_, _) =>
         {
@@ -148,7 +154,7 @@ public sealed partial class MainWindow : Window
         Grid.SetColumn(_center, 1);
         _workspace.Children.Add(_center);
         Grid.SetColumn(Side, 2);
-        _workspace.Children.Add(Side);
+        if (Part("side")) _workspace.Children.Add(Side);
         Grid.SetRow(_workspace, 2);
         Root.Children.Add(_workspace);
 
@@ -169,7 +175,7 @@ public sealed partial class MainWindow : Window
         Grid.SetColumn(right, 1);
         statusBar.Children.Add(right);
         Grid.SetRow(statusBar, 3);
-        Root.Children.Add(statusBar);
+        if (Part("status")) Root.Children.Add(statusBar);
 
         Grid.SetRow(_backstageHost, 1);
         Grid.SetRowSpan(_backstageHost, 3);

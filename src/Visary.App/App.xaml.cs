@@ -35,6 +35,12 @@ public partial class App : Application
             Shell.Log.Error("Startup", ex);
             throw;
         }
+        if (argv.Contains("--smoke"))
+        {
+            // Launch, render for a few seconds, exit. CI uses this to bisect startup problems.
+            _ = Task.Delay(4000).ContinueWith(_ => Environment.Exit(0));
+            return;
+        }
         var selfTest = Array.IndexOf(argv, "--selftest");
         if (selfTest >= 0)
         {

@@ -184,7 +184,7 @@ public sealed partial class Ribbon : Grid
         var target = Ed.SelectedElements.OfType<ITextHost>().FirstOrDefault();
         var st = target?.Style ?? new TextStyle { FontFamily = Ed.Theme.BodyFont };
         void S(Action<TextStyle> f, string key) => Ed.UpdateSelected(x => { if (x is ITextHost h) f(h.Style); }, key);
-        var font = new ComboBox { IsEditable = true, Width = 170, ItemsSource = SlideThemes.Fonts, Text = st.FontFamily, IsEnabled = target != null };
+        var font = new ComboBox { IsEditable = true, Width = 170, ItemsSource = SlideThemes.Fonts.ToList(), Text = st.FontFamily, IsEnabled = target != null };
         font.SelectionChanged += (_, _) => { if (font.SelectedItem is string f) S(x => x.FontFamily = f, "font"); };
         font.TextSubmitted += (_, a) => S(x => x.FontFamily = a.Text, "font");
         var size = Ui.Number(st.FontSize, 6, 600, v => S(x => x.FontSize = v, "size"));

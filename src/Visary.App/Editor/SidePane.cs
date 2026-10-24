@@ -177,7 +177,7 @@ public sealed partial class SidePane : Grid
     FrameworkElement TextSection(TextStyle st)
     {
         void S(Action<TextStyle> f, string key) => Update(x => { if (x is ITextHost h) f(h.Style); }, key);
-        var font = new ComboBox { IsEditable = true, HorizontalAlignment = HorizontalAlignment.Stretch, ItemsSource = SlideThemes.Fonts, Text = st.FontFamily };
+        var font = new ComboBox { IsEditable = true, HorizontalAlignment = HorizontalAlignment.Stretch, ItemsSource = SlideThemes.Fonts.ToList(), Text = st.FontFamily };
         font.SelectionChanged += (_, _) => { if (font.SelectedItem is string f) S(x => x.FontFamily = f, "font"); };
         font.TextSubmitted += (_, a) => S(x => x.FontFamily = a.Text, "font");
         var size = Ui.Number(st.FontSize, 6, 600, v => S(x => x.FontSize = v, "size"));

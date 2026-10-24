@@ -55,8 +55,11 @@ public sealed partial class SlideCanvas : Grid
     {
         _ed = ed;
         Background = Palette.Canvas;
-        _paper.Shadow = new ThemeShadow();
-        _paper.Translation = new System.Numerics.Vector3(0, 0, 24);
+        if (MainWindow.Part("shadow"))
+        {
+            _paper.Shadow = new ThemeShadow();
+            _paper.Translation = new System.Numerics.Vector3(0, 0, 24);
+        }
         _page.Children.Add(_paper);
         _page.Children.Add(_scaled);
         _page.Children.Add(_adorners);
@@ -74,7 +77,12 @@ public sealed partial class SlideCanvas : Grid
         _page.DragOver += (_, e) => { if (e.DataView.Contains(StandardDataFormats.StorageItems)) e.AcceptedOperation = DataPackageOperation.Copy; };
         _page.Drop += OnDrop;
         _scroll.PointerWheelChanged += OnWheel;
-        _scroll.SizeChanged += (_, _) => { UpdateFit(); Layout(); };
+        _scroll.SizeChanged += (_, _) =>
+        {
+            var before = _fit;
+            UpdateFit();
+            if (_zoom == null && Math.Abs(before - _fit) > 1e-9) Layout();
+        };
         _ed.Changed += OnChanged;
         Rebuild();
     }
@@ -90,10 +98,13 @@ public sealed partial class SlideCanvas : Grid
 
     void UpdateFit()
     {
-        var w = _scroll.ActualWidth - 72;
-        var h = _scroll.ActualHeight - 72;
+        // Leave slack so the page never quite fills the viewport, which avoids scroll bar layout loops.
+        var w = _scroll.ActualWidth - 96;
+        var h = _scroll.ActualHeight - 96;
         if (w <= 0 || h <= 0) return;
-        _fit = Math.Max(.05, Math.Min(w / _ed.Doc.Width, h / _ed.Doc.Height));
+        var fit = Math.Max(.05, Math.Floor(Math.Min(w / _ed.Doc.Width, h / _ed.Doc.Height) * 1000) / 1000);
+        if (Math.Abs(fit - _fit) < .002) return;
+        _fit = fit;
     }
 
     public void SetZoom(double? zoom)
