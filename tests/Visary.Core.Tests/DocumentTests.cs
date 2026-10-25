@@ -21,6 +21,14 @@ public class DocumentTests
         p.Slides[2].Hidden = true;
         p.Slides[2].Builds.Add(new Build { ElementId = p.Slides[2].Elements[0].Id, Effect = "rise" });
         foreach (var k in Enum.GetValues<ShapeKind>()) p.Slides[3].Elements.Add(Factory.Shape(k, 10, 10, 100, 80, "#C43E1C"));
+        var table = TableElement.Create(3, 4);
+        table.X = 100; table.Y = 500; table.Width = 800; table.Height = 240;
+        table.Rows[1][2] = "Cell & <text>";
+        p.Slides[3].Elements.Add(table);
+        p.Slides[3].Elements.Add(new IconElement { Glyph = "\uE721", X = 1000, Y = 100, Width = 160, Height = 160 });
+        p.Slides[3].Elements[0].Hidden = true;
+        p.ShowSlideNumbers = true;
+        p.FooterText = "Visary & friends";
         return p;
     }
 
@@ -37,6 +45,24 @@ public class DocumentTests
         Assert.IsType<ImageElement>(back.Slides[0].Elements[^1]);
         Assert.Equal("cascade", back.Slides[1].Transition.Effect);
         Assert.Equal(p.Slides[2].Builds[0].ElementId, back.Slides[2].Builds[0].ElementId);
+    }
+
+    [Fact]
+    public void Tables_icons_groups_and_hidden_flags_round_trip()
+    {
+        var p = Sample();
+        p.Slides[3].Elements[1].GroupId = "g1";
+        using var ms = new MemoryStream();
+        PresentationFile.Save(p, ms);
+        ms.Position = 0;
+        var back = PresentationFile.Load(ms);
+        var t = back.Slides[3].Elements.OfType<TableElement>().Single();
+        Assert.Equal(4, t.ColumnCount);
+        Assert.Equal("Cell & <text>", t.Rows[1][2]);
+        Assert.Equal("\uE721", back.Slides[3].Elements.OfType<IconElement>().Single().Glyph);
+        Assert.True(back.Slides[3].Elements[0].Hidden);
+        Assert.Equal("g1", back.Slides[3].Elements[1].GroupId);
+        Assert.Equal("Visary & friends", back.FooterText);
     }
 
     [Fact]
@@ -109,6 +135,9 @@ public class DocumentTests
         Assert.Contains(xml, x => x.Contains("p159:morph"));
         Assert.Contains(xml, x => x.Contains("name=\"!!"));
         Assert.Contains(xml, x => x.Contains("show=\"0\""));
+        Assert.Contains(xml, x => x.Contains("<a:tbl>") && x.Contains("Cell &amp; &lt;text&gt;"));
+        Assert.Contains(xml, x => x.Contains("hidden=\"1\""));
+        Assert.Contains(xml, x => x.Contains("Visary &amp; friends"));
     }
 
     [Fact]
@@ -147,5 +176,31 @@ public class DocumentTests
         Assert.False(steps[1].Automatic);
         Assert.Equal(new[] { 0, 0, 500 }, steps[1].Items.Select(i => i.StartMs));
         Assert.All(BuildCatalog.All, b => Assert.NotEmpty(BuildCatalog.Tracks(new Build { Kind = b.Kind, Effect = b.Id })));
+    }
+}
+
+public class PdfTests
+{
+    static readonly byte[] Jpeg = Convert.FromBase64String("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAASACADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDl6KKK+RP1AKKKKACiiigAooooA//Z");
+
+    [Fact]
+    public void Writes_a_page_per_slide_with_a_valid_cross_reference_table()
+    {
+        using var ms = new MemoryStream();
+        PdfWriter.Write(ms, [new(Jpeg, 32, 18), new(Jpeg, 32, 18)], 960, 540, "Deck (draft)");
+        var bytes = ms.ToArray();
+        var text = System.Text.Encoding.Latin1.GetString(bytes);
+        Assert.StartsWith("%PDF-1.4", text);
+        Assert.Contains("/Count 2", text);
+        Assert.Contains("(Deck \\(draft\\))", text);
+        // Every xref offset must point at the start of its object.
+        var start = int.Parse(text[(text.LastIndexOf("startxref") + 10)..].Split('\n')[0]);
+        var lines = text[start..].Split('\n');
+        var count = int.Parse(lines[1].Split(' ')[1]);
+        for (var i = 1; i < count; i++)
+        {
+            var offset = int.Parse(lines[2 + i][..10]);
+            Assert.StartsWith($"{i} 0 obj", text[offset..]);
+        }
     }
 }

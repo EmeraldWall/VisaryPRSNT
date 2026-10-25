@@ -66,7 +66,8 @@ public sealed class DocumentEditor
     {
         FilePath = path;
         IsDirty = false;
-        Raise(ChangeKind.Document);
+        // Nothing in the slides changed, so views only refresh the title (AutoSave saves often).
+        Raise(ChangeKind.None);
     }
 
     /// <summary>Applies a change with an undo step. Changes with the same coalesce key merge (typing, sliders).</summary>
@@ -208,7 +209,7 @@ public sealed class DocumentEditor
         Select([e.Id]);
     }
 
-    public TextElement InsertTextBox(bool heading = false)
+    public TextElement InsertTextBox(bool heading = false, string? text = null)
     {
         var t = Theme;
         var H = _doc.Height;
@@ -217,7 +218,14 @@ public sealed class DocumentEditor
             FontFamily = heading ? t.HeadingFont : t.BodyFont, FontSize = Math.Round(H * (heading ? .06 : .035)),
             Color = t.Text, Bold = heading,
         };
-        var e = Factory.Text(0, 0, _doc.Width * .4, H * .12, heading ? "Heading" : "Click to add text", style, heading ? TextRole.Title : TextRole.Body);
+        var e = Factory.Text(0, 0, _doc.Width * .4, H * .12, text ?? (heading ? "Heading" : "Click to add text"), style, heading ? TextRole.Title : TextRole.Body);
+        if (text != null)
+        {
+            // Pasted text: size the box to the number of lines it holds.
+            var lines = Math.Clamp(text.Split('\n').Length, 1, 20);
+            e.Width = _doc.Width * .6;
+            e.Height = Math.Min(H * .8, lines * style.FontSize * 1.4 + 2 * e.Padding);
+        }
         Insert(e);
         return e;
     }
@@ -241,6 +249,76 @@ public sealed class DocumentEditor
         Insert(e);
         return e;
     }
+
+    public TableElement InsertTable(int rows, int cols)
+    {
+        var t = TableElement.Create(Math.Clamp(rows, 1, 30), Math.Clamp(cols, 1, 12));
+        var th = Theme;
+        t.Width = Math.Min(_doc.Width * .8, cols * _doc.Width * .14);
+        t.Height = rows * _doc.Height * .075;
+        t.Style.FontFamily = th.BodyFont;
+        t.Style.FontSize = Math.Round(_doc.Height * .022);
+        t.Style.Color = th.Text;
+        t.HeaderFill = th.Accents[0];
+        Insert(t);
+        return t;
+    }
+
+    public IconElement InsertIcon(string glyph)
+    {
+        var s = _doc.Height * .18;
+        var e = new IconElement { Glyph = glyph, Color = Theme.Accents[0], Width = s, Height = s };
+        Insert(e);
+        return e;
+    }
+
+    public void UpdateTable(string id, Action<TableElement> change, string? coalesce = null) =>
+        Mutate(_ => { if (Current.Find(id) is TableElement t) { change(t); t.Normalize(); } }, ChangeKind.Content, coalesce);
+
+    /* ---------------- groups and visibility ---------------- */
+
+    /// <summary>The ids that select together with <paramref name="id"/> (its whole group).</summary>
+    public IReadOnlyList<string> GroupOf(string id)
+    {
+        var e = Current.Find(id);
+        if (e?.GroupId is not { } g) return [id];
+        return Current.Elements.Where(x => x.GroupId == g).Select(x => x.Id).ToList();
+    }
+
+    public bool CanGroup => _selection.Count > 1;
+    public bool CanUngroup => SelectedElements.Any(e => e.GroupId != null);
+
+    public void Group()
+    {
+        if (!CanGroup) return;
+        var g = Ids.New();
+        UpdateSelected(e => e.GroupId = g);
+    }
+
+    public void Ungroup()
+    {
+        if (!CanUngroup) return;
+        UpdateSelected(e => e.GroupId = null);
+    }
+
+    public void SetHidden(string id, bool hidden) =>
+        Mutate(_ => { if (Current.Find(id) is { } e) e.Hidden = hidden; });
+
+    public void SetLocked(string id, bool locked) =>
+        Mutate(_ => { if (Current.Find(id) is { } e) e.Locked = locked; });
+
+    public void Rename(string id, string? name) =>
+        Mutate(_ => { if (Current.Find(id) is { } e) e.Name = string.IsNullOrWhiteSpace(name) ? null : name.Trim(); }, ChangeKind.Content, $"rename-{id}");
+
+    /// <summary>Moves one object a step up or down the stacking order (Selection pane arrows).</summary>
+    public void MoveInStack(string id, int delta) => Mutate(_ =>
+    {
+        var list = Current.Elements;
+        var i = list.FindIndex(e => e.Id == id);
+        var j = i + delta;
+        if (i < 0 || j < 0 || j >= list.Count) return;
+        (list[i], list[j]) = (list[j], list[i]);
+    });
 
     public void DeleteSelection()
     {
@@ -344,14 +422,32 @@ public sealed class DocumentEditor
 
     public bool CanPaste => _clip != null;
 
+    /// <summary>Raised after Copy or Cut with the plain text of the copied objects, so the app can fill the system clipboard.</summary>
+    public event Action<string>? Copied;
+
     public void Copy()
     {
+        if (!CopyCore()) return;
+        var text = string.Join(Environment.NewLine + Environment.NewLine, SelectedElements.Select(PlainText).Where(t => t.Length > 0));
+        Copied?.Invoke(text);
+    }
+
+    static string PlainText(SlideElement e) => e switch
+    {
+        ITextHost t => t.Text.Trim(),
+        TableElement t => string.Join(Environment.NewLine, t.Rows.Select(r => string.Join("\t", r))),
+        _ => "",
+    };
+
+    bool CopyCore()
+    {
         var els = SelectedElements.ToList();
-        if (els.Count == 0) return;
+        if (els.Count == 0) return false;
         var ids = els.Select(e => e.Id).ToHashSet();
         _clip = JsonSerializer.Serialize(new ClipPayload { Elements = els, Builds = Current.Builds.Where(b => ids.Contains(b.ElementId)).ToList() }, Json.Options);
         _clipMedia = els.OfType<ImageElement>().Where(i => _doc.Media.ContainsKey(i.MediaId)).ToDictionary(i => i.MediaId, i => _doc.Media[i.MediaId]);
         _pasteCount = 0;
+        return true;
     }
 
     public void Cut()
@@ -366,8 +462,10 @@ public sealed class DocumentEditor
         var payload = JsonSerializer.Deserialize<ClipPayload>(_clip, Json.Options)!;
         var offset = 24 * ++_pasteCount;
         var map = new Dictionary<string, string>();
+        var groups = new Dictionary<string, string>();
         foreach (var e in payload.Elements)
         {
+            if (e.GroupId is { } g) e.GroupId = groups.TryGetValue(g, out var ng) ? ng : groups[g] = Ids.New();
             var id = Ids.New();
             map[e.Id] = id;
             e.Id = id;
@@ -388,10 +486,13 @@ public sealed class DocumentEditor
         Select(payload.Elements.Select(e => e.Id));
     }
 
+    /// <summary>Duplicates without disturbing what is on the clipboard.</summary>
     public void DuplicateSelection()
     {
-        Copy();
+        var (clip, media, count) = (_clip, _clipMedia, _pasteCount);
+        if (!CopyCore()) return;
         Paste();
+        (_clip, _clipMedia, _pasteCount) = (clip, media, count);
     }
 
     /* ---------------- design ---------------- */
@@ -408,6 +509,13 @@ public sealed class DocumentEditor
                 s.Background = Factory.ThemeBackground(t, title);
                 foreach (var e in s.Elements)
                 {
+                    if (e is TableElement tb)
+                    {
+                        tb.HeaderFill = t.Accents[0];
+                        tb.Style.FontFamily = t.BodyFont;
+                        tb.Style.Color = t.Text;
+                    }
+                    if (e is IconElement ic) ic.Color = t.Accents[0];
                     if (e is TextElement te && te.Role != TextRole.None)
                     {
                         te.Style.FontFamily = te.Role == TextRole.Title ? t.HeadingFont : t.BodyFont;
@@ -434,6 +542,7 @@ public sealed class DocumentEditor
                 e.X = cx - e.Width / 2;
                 e.Y = cy - e.Height / 2;
                 if (e is ITextHost th) th.Style.FontSize = Math.Max(6, Math.Round(th.Style.FontSize * k));
+                if (e is TableElement tb) tb.Style.FontSize = Math.Max(6, Math.Round(tb.Style.FontSize * k));
             }
         }, ChangeKind.All);
     }
@@ -504,8 +613,16 @@ public sealed class DocumentEditor
         if (string.IsNullOrEmpty(text)) yield break;
         var cmp = matchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
         for (var i = 0; i < _doc.Slides.Count; i++)
-            foreach (var e in _doc.Slides[i].Elements.OfType<ITextHost>())
-                if (e.Text.Contains(text, cmp)) yield return (i, ((SlideElement)e).Id);
+            foreach (var e in _doc.Slides[i].Elements)
+            {
+                var hit = e switch
+                {
+                    ITextHost th => th.Text.Contains(text, cmp),
+                    TableElement t => t.Rows.Any(r => r.Any(c => c.Contains(text, cmp))),
+                    _ => false,
+                };
+                if (hit) yield return (i, e.Id);
+            }
     }
 
     public int ReplaceAll(string find, string replace, bool matchCase)
@@ -515,8 +632,13 @@ public sealed class DocumentEditor
         var cmp = matchCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
         Mutate(d =>
         {
-            foreach (var e in d.Slides.SelectMany(s => s.Elements).OfType<ITextHost>())
-                e.Text = e.Text.Replace(find, replace, cmp);
+            foreach (var e in d.Slides.SelectMany(s => s.Elements))
+            {
+                if (e is ITextHost th) th.Text = th.Text.Replace(find, replace, cmp);
+                if (e is TableElement t)
+                    foreach (var row in t.Rows)
+                        for (var c = 0; c < row.Count; c++) row[c] = row[c].Replace(find, replace, cmp);
+            }
         }, ChangeKind.All);
         return hits;
     }

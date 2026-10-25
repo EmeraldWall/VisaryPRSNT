@@ -36,6 +36,8 @@ public static class TransitionPlanner
             case "depth": Depth(c); break;
             case "portal": Portal(c); break;
             case "orbit": Orbit(c); break;
+            case "dive": Dive(c); break;
+            case "parallax": Parallax(c); break;
             case "focus": Focus(c); break;
             case "frost": Frost(c); break;
             case "sweep": Sweep(c); break;
@@ -287,6 +289,73 @@ public static class TransitionPlanner
                 .Tween(Prop.Scale, 1, 1 + .9 * c.K, 0, .65, Ease.Accelerate)
                 .Tween(Prop.Blur, 0, 24 * c.K, 0, .65, Ease.Accelerate)
                 .Tween(Prop.Opacity, 1, 0, .18, .62, Ease.Smooth);
+    }
+
+    /// <summary>Zooms into a focal object of the old slide and emerges from the same spot into the new one.</summary>
+    static void Dive(Ctx c)
+    {
+        var focus = c.HasFrom
+            ? MatchForMorph(c.From!, c.To).Select(p => p.from).FirstOrDefault()
+              ?? c.From!.Elements.OrderByDescending(e => e.Bounds.Width * e.Bounds.Height).FirstOrDefault(e => e.Bounds.Width * e.Bounds.Height < c.W * c.H * .6)
+            : null;
+        var fx = focus?.Bounds ?? new RectD(c.W * .4, c.H * .4, c.W * .2, c.H * .2);
+        double px = Math.Clamp(fx.CenterX / c.W, 0, 1), py = Math.Clamp(fx.CenterY / c.H, 0, 1);
+        var fill = Math.Clamp(Math.Min(c.W / Math.Max(1, fx.Width), c.H / Math.Max(1, fx.Height)), 1.6, 7) * Math.Min(1.2, c.K);
+        if (c.HasFrom)
+            c.Add(new Actor { Source = ActorSource.OutgoingSlide, Bounds = c.Full, PivotX = px, PivotY = py })
+                .Tween(Prop.Scale, 1, fill, 0, .7, Ease.Accelerate)
+                .Tween(Prop.Blur, 0, 14 * c.K, .2, .7, Ease.Accelerate)
+                .Tween(Prop.Opacity, 1, 0, .35, .7, Ease.Smooth);
+        var start = Math.Clamp(Math.Max(fx.Width / c.W, fx.Height / c.H), .12, .6);
+        var a = c.Add(new Actor { Source = ActorSource.IncomingSlide, Bounds = c.Full, PivotX = px, PivotY = py })
+            .Tween(Prop.Opacity, 0, 1, .32, .62, Ease.Smooth)
+            .Tween(Prop.Blur, 10 * c.K, 0, .32, .95, Ease.Fluid);
+        // Insert the incoming slide under the outgoing one so the dive happens in front of it.
+        c.Plan.Actors.Remove(a);
+        c.Plan.Actors.Insert(0, a);
+        c.Motion(a, Prop.Scale, start, 1, .3, 1);
+    }
+
+    /// <summary>A push where backgrounds move slower than objects, and objects move at staggered depths.</summary>
+    static void Parallax(Ctx c)
+    {
+        var (vx, vy) = Direction(c.Variant);
+        var dist = vx != 0 ? c.W : c.H;
+        if (c.HasFrom)
+        {
+            c.Add(new Actor { Source = ActorSource.OutgoingBackground, Bounds = c.Full })
+                .Tween(Prop.TranslateX, 0, -vx * dist * .35, 0, 1, c.E)
+                .Tween(Prop.TranslateY, 0, -vy * dist * .35, 0, 1, c.E)
+                .Tween(Prop.Exposure, 0, -.4, 0, 1, c.E);
+        }
+        c.Add(new Actor { Source = ActorSource.IncomingBackground, Bounds = c.Full })
+            .Tween(Prop.TranslateX, vx * dist * .35, 0, 0, 1, c.E)
+            .Tween(Prop.TranslateY, vy * dist * .35, 0, 0, 1, c.E)
+            .Tween(Prop.Opacity, 0, 1, 0, .35, Ease.Smooth);
+        if (c.HasFrom)
+        {
+            var i = 0;
+            foreach (var e in c.From!.Elements)
+            {
+                var depth = 1.05 + .25 * (i++ % 4) * c.K;
+                c.Add(ElementActor(ActorSource.OutgoingElement, e))
+                    .Tween(Prop.TranslateX, 0, -vx * dist * depth, 0, 1, c.E)
+                    .Tween(Prop.TranslateY, 0, -vy * dist * depth, 0, 1, c.E)
+                    .Tween(Prop.Opacity, e.Opacity, e.Opacity, 0, 1, Ease.Linear);
+            }
+        }
+        var j = 0;
+        foreach (var e in c.To.Elements)
+        {
+            var depth = 1.05 + .25 * (j++ % 4) * c.K;
+            // Start fully off the slide whatever the object's position.
+            var offX = vx > 0 ? c.W - e.Bounds.X : vx < 0 ? -e.Bounds.Right : 0;
+            var offY = vy > 0 ? c.H - e.Bounds.Y : vy < 0 ? -e.Bounds.Bottom : 0;
+            var a = c.Add(ElementActor(ActorSource.IncomingElement, e))
+                .Tween(Prop.Opacity, e.Opacity, e.Opacity, 0, 1, Ease.Linear);
+            c.Motion(a, Prop.TranslateX, vx * Math.Max(Math.Abs(offX), dist * depth), 0);
+            c.Motion(a, Prop.TranslateY, vy * Math.Max(Math.Abs(offY), dist * depth), 0);
+        }
     }
 
     static void Orbit(Ctx c)

@@ -107,13 +107,14 @@ public static class PptxExporter
         sb.Append("<a:effectLst/></p:bgPr></p:bg><p:spTree>").Append(GroupHeader);
 
         var id = 2;
-        foreach (var e in s.Elements)
+        foreach (var e in s.Elements.Concat(SlideDecorations.For(pres, s)))
         {
             var name = $"!!{X(e.Id)}";
+            var hid = e.Hidden ? " hidden=\"1\"" : "";
             switch (e)
             {
                 case TextElement t:
-                    sb.Append($"<p:sp><p:nvSpPr><p:cNvPr id=\"{id++}\" name=\"{name}\"/><p:cNvSpPr txBox=\"1\"/><p:nvPr/></p:nvSpPr><p:spPr>{Xfrm(t.X, t.Y, t.Width, t.Height, t.Rotation)}");
+                    sb.Append($"<p:sp><p:nvSpPr><p:cNvPr id=\"{id++}\" name=\"{name}\"{hid}/><p:cNvSpPr txBox=\"1\"/><p:nvPr/></p:nvSpPr><p:spPr>{Xfrm(t.X, t.Y, t.Width, t.Height, t.Rotation)}");
                     sb.Append(t.CornerRadius > 0 ? RoundGeom(t.CornerRadius, t.Width, t.Height) : "<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom>");
                     sb.Append(Fill(t.Fill, t.Opacity)).Append(Line(t.Outline, t.Opacity)).Append("</p:spPr>");
                     sb.Append(TextBody(t.Text, t.Style, t.Padding, t.Opacity)).Append("</p:sp>");
@@ -123,11 +124,21 @@ public static class PptxExporter
                     var line = sh.IsLine;
                     var y = line ? sh.Y + sh.Height / 2 : sh.Y;
                     var h = line ? 0 : sh.Height;
-                    sb.Append($"<p:sp><p:nvSpPr><p:cNvPr id=\"{id++}\" name=\"{name}\"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>{Xfrm(sh.X, y, sh.Width, h, sh.Rotation)}");
+                    sb.Append($"<p:sp><p:nvSpPr><p:cNvPr id=\"{id++}\" name=\"{name}\"{hid}/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>{Xfrm(sh.X, y, sh.Width, h, sh.Rotation)}");
                     sb.Append(sh.Kind == ShapeKind.RoundedRectangle ? RoundGeom(sh.CornerRadius, sh.Width, sh.Height) : $"<a:prstGeom prst=\"{Preset(sh.Kind)}\"><a:avLst/></a:prstGeom>");
                     sb.Append(line ? "<a:noFill/>" : Fill(sh.Fill, sh.Opacity)).Append(Line(sh.Outline, sh.Opacity, sh.Kind == ShapeKind.ArrowLine)).Append("</p:spPr>");
                     if (!line) sb.Append(TextBody(sh.Text, sh.Style, Math.Min(sh.Width, sh.Height) * .08, sh.Opacity));
                     sb.Append("</p:sp>");
+                    break;
+                }
+                case TableElement tb:
+                    sb.Append(TableXml(tb, id++, name, hid));
+                    break;
+                case IconElement ic:
+                {
+                    var st = new TextStyle { FontFamily = "Segoe Fluent Icons", FontSize = Math.Min(ic.Width, ic.Height) * .78, Color = ic.Color, Align = TextAlign.Center, VerticalAlign = VerticalAlign.Middle, LineSpacing = 1 };
+                    sb.Append($"<p:sp><p:nvSpPr><p:cNvPr id=\"{id++}\" name=\"{name}\"{hid}/><p:cNvSpPr txBox=\"1\"/><p:nvPr/></p:nvSpPr><p:spPr>{Xfrm(ic.X, ic.Y, ic.Width, ic.Height, ic.Rotation)}<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>");
+                    sb.Append(TextBody(ic.Glyph, st, 0, ic.Opacity)).Append("</p:sp>");
                     break;
                 }
                 case ImageElement img when pres.Media.TryGetValue(img.MediaId, out var media):
@@ -159,7 +170,7 @@ public static class PptxExporter
                             else { var nw = h * imgRatio; x += (w - nw) / 2; w = nw; }
                         }
                     }
-                    sb.Append($"<p:pic><p:nvPicPr><p:cNvPr id=\"{id++}\" name=\"{name}\"/><p:cNvPicPr><a:picLocks noChangeAspect=\"1\"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>");
+                    sb.Append($"<p:pic><p:nvPicPr><p:cNvPr id=\"{id++}\" name=\"{name}\"{hid}/><p:cNvPicPr><a:picLocks noChangeAspect=\"1\"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>");
                     sb.Append($"<p:blipFill><a:blip r:embed=\"{rid}\">{(img.Opacity < 1 ? $"<a:alphaModFix amt=\"{I(img.Opacity * 100000)}\"/>" : "")}</a:blip>{src}<a:stretch><a:fillRect/></a:stretch></p:blipFill>");
                     sb.Append($"<p:spPr>{Xfrm(x, y, w, h, img.Rotation)}");
                     sb.Append(img.CornerRadius > 0 ? RoundGeom(img.CornerRadius, w, h) : "<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom>");
@@ -172,6 +183,39 @@ public static class PptxExporter
         sb.Append(TransitionXml(s.Transition));
         sb.Append("</p:sld>");
         return sb.ToString();
+    }
+
+    static string TableXml(TableElement t, int id, string name, string hid)
+    {
+        t.Normalize();
+        var cols = Math.Max(1, t.ColumnCount);
+        var rows = Math.Max(1, t.Rows.Count);
+        long colW = Emu(t.Width / cols), rowH = Emu(t.Height / rows);
+        var sb = new StringBuilder();
+        sb.Append($"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id=\"{id}\" name=\"{name}\"{hid}/><p:cNvGraphicFramePr><a:graphicFrameLocks noGrp=\"1\"/></p:cNvGraphicFramePr><p:nvPr/></p:nvGraphicFramePr>");
+        sb.Append($"<p:xfrm><a:off x=\"{Emu(t.X)}\" y=\"{Emu(t.Y)}\"/><a:ext cx=\"{colW * cols}\" cy=\"{rowH * rows}\"/></p:xfrm>");
+        sb.Append("<a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/table\"><a:tbl>");
+        sb.Append($"<a:tblPr firstRow=\"{(t.HeaderRow ? 1 : 0)}\" bandRow=\"{(t.BandedRows ? 1 : 0)}\"/><a:tblGrid>");
+        for (var c = 0; c < cols; c++) sb.Append($"<a:gridCol w=\"{colW}\"/>");
+        sb.Append("</a:tblGrid>");
+        var line = t.BorderWidth > 0 ? $"w=\"{Emu(t.BorderWidth)}\"><a:solidFill>{Clr(t.BorderColor)}</a:solidFill></" : "><a:noFill/></";
+        for (var r = 0; r < rows; r++)
+        {
+            var header = t.HeaderRow && r == 0;
+            var fill = header ? t.HeaderFill : t.BandedRows && r % 2 == 0 ? t.BandFill : t.CellFill;
+            var st = t.Style.Clone();
+            if (header) { st.Color = t.HeaderTextColor; st.Bold = true; }
+            sb.Append($"<a:tr h=\"{rowH}\">");
+            foreach (var cell in t.Rows[r])
+            {
+                var body = TextBody(cell, st, 4, t.Opacity).Replace("<p:txBody>", "<a:txBody>").Replace("</p:txBody>", "</a:txBody>");
+                sb.Append($"<a:tc>{body}<a:tcPr anchor=\"ctr\">");
+                foreach (var side in new[] { "lnL", "lnR", "lnT", "lnB" }) sb.Append($"<a:{side} {line}a:{side}>");
+                sb.Append($"<a:solidFill>{Clr(fill, t.Opacity)}</a:solidFill></a:tcPr></a:tc>");
+            }
+            sb.Append("</a:tr>");
+        }
+        return sb.Append("</a:tbl></a:graphicData></a:graphic></p:graphicFrame>").ToString();
     }
 
     static string AddImage(SlidePart part, MediaItem media)
@@ -273,7 +317,8 @@ public static class PptxExporter
             "stack" => ("p", $"<p:cover dir=\"{PushDir(v)}\"/>"),
             "panels" => ("p", $"<p:pull dir=\"{(v == "down" ? "d" : "u")}\"/>"),
             "float" => ("p", "<p:pull dir=\"u\"/>"),
-            "depth" => ("p", "<p:zoom dir=\"in\"/>"),
+            "depth" or "dive" => ("p", "<p:zoom dir=\"in\"/>"),
+            "parallax" => ("p", $"<p:push dir=\"{PushDir(v)}\"/>"),
             "portal" => ("p14", "<p14:flythrough dir=\"in\"/>"),
             "orbit" => ("p14", $"<p14:gallery dir=\"{(v == "left" ? "r" : "l")}\"/>"),
             "sweep" => ("p", $"<p:wipe dir=\"{(v == "left" ? "l" : "r")}\"/>"),

@@ -149,6 +149,7 @@ public static class PresentationFile
                 e.Width = Math.Max(1, e.Width);
                 e.Height = Math.Max(1, e.Height);
                 e.Opacity = Math.Clamp(e.Opacity, 0, 1);
+                if (e is TableElement t) t.Normalize();
             }
             var ids = s.Elements.Select(e => e.Id).ToHashSet();
             s.Builds.RemoveAll(b => !ids.Contains(b.ElementId));

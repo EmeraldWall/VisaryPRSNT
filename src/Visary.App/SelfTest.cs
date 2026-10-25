@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using Visary.App.Editor;
 using Visary.App.Shell;
 using Visary.Core.Documents;
+using Visary.Core.Editing;
 using Visary.Core.Export;
 using Visary.Core.Model;
 using Visary.Core.Transitions;
@@ -67,7 +68,69 @@ public static class SelfTest
             ed.InsertTextBox();
             ed.InsertTextBox(heading: true);
             ed.InsertImage(SamplePng(), "image/png", 64, 48);
+            var table = ed.InsertTable(4, 3);
+            ed.UpdateTable(table.Id, t => { t.Rows[1][0] = "Revenue"; t.Rows[1][1] = "42"; });
+            foreach (var (glyph, _) in SidePane.IconGallery.Take(6)) ed.InsertIcon(glyph);
             await Task.Delay(300);
+        });
+
+        await Step("group, ungroup, hide and the selection pane", async () =>
+        {
+            var ids = ed.Current.Elements.TakeLast(3).Select(e => e.Id).ToList();
+            ed.Select(ids);
+            ed.Group();
+            if (ed.GroupOf(ids[0]).Count != 3) throw new InvalidOperationException("Group did not hold three objects");
+            w.Side.Mode = PaneMode.Selection;
+            ed.SetHidden(ids[0], true);
+            ed.Rename(ids[1], "Renamed in self test");
+            ed.MoveInStack(ids[2], -1);
+            await Task.Delay(200);
+            await Shot(w, outDir, "04-selection-pane");
+            ed.Select(ids);
+            ed.Ungroup();
+            ed.SetHidden(ids[0], false);
+            await Task.Delay(100);
+        });
+
+        await Step("table format pane", async () =>
+        {
+            var t = ed.Current.Elements.OfType<TableElement>().First();
+            ed.Select([t.Id]);
+            w.Side.Mode = PaneMode.Format;
+            await Task.Delay(250);
+            await Shot(w, outDir, "05-table");
+        });
+
+        await Step("footer and slide numbers", async () =>
+        {
+            ed.Mutate(p => { p.ShowSlideNumbers = true; p.FooterText = "Visary PRSNT self test"; }, ChangeKind.Content | ChangeKind.Slides);
+            w.Side.Mode = PaneMode.Design;
+            await Task.Delay(200);
+        });
+
+        await Step("slide sorter view", async () =>
+        {
+            w.SorterView = true;
+            await Task.Delay(400);
+            await Shot(w, outDir, "06-slide-sorter");
+            w.SorterView = false;
+            await Task.Delay(100);
+        });
+
+        await Step("mica on and off", async () =>
+        {
+            var was = Settings.Current.Mica;
+            w.ApplyBackdrop(!was);
+            await Task.Delay(200);
+            w.ApplyBackdrop(was);
+            await Task.Delay(100);
+        });
+
+        await Step("notification bar and shortcuts", async () =>
+        {
+            w.Notify("Self test", "InfoBar notifications work.", true);
+            await Task.Delay(150);
+            await Shot(w, outDir, "07-infobar");
         });
 
         foreach (var tab in Enum.GetValues<RibbonTab>())
@@ -121,6 +184,17 @@ public static class SelfTest
             });
         }
 
+        await Step("live hover preview with override settings", async () =>
+        {
+            ed.GoTo(1);
+            var before = ed.Current.Transition.Effect;
+            var preview = w.Canvas.PreviewTransitionAsync(new TransitionSettings { Effect = "dive", DurationMs = 400 });
+            await Task.Delay(150);
+            w.Canvas.CancelPreview();
+            await preview;
+            if (ed.Current.Transition.Effect != before) throw new InvalidOperationException("Hover preview changed the slide's transition");
+        });
+
         await Step("object animation preview", async () =>
         {
             ed.GoTo(1);
@@ -158,6 +232,17 @@ public static class SelfTest
             if (back.Slides.Count != ed.Doc.Slides.Count) throw new InvalidOperationException("Slide count changed after reopening");
             PptxExporter.Export(back, Path.Combine(outDir, "export.pptx"));
             await Task.Delay(50);
+        });
+
+        await Step("export pdf and png", async () =>
+        {
+            var pdf = Path.Combine(outDir, "export.pdf");
+            await Commands.ExportPdfAsync(ed, includeHidden: false, path: pdf);
+            if (!File.Exists(pdf) || new FileInfo(pdf).Length < 2000) throw new InvalidOperationException("PDF was not written");
+            var pngDir = Path.Combine(outDir, "png");
+            Directory.CreateDirectory(pngDir);
+            await Commands.ExportImagesAsync(ed, currentOnly: true, pixelWidth: 1280, folder: pngDir);
+            if (Directory.GetFiles(pngDir, "*.png").Length != 1) throw new InvalidOperationException("PNG was not written");
         });
 
         Report.Add($"Finished in {(DateTime.Now - started).TotalSeconds:0.0} s with {_failures} failure(s).");

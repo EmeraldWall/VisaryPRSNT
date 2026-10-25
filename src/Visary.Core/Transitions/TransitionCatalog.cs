@@ -40,10 +40,12 @@ public static class TransitionCatalog
             [new("horizontal", "Top and bottom"), new("vertical", "Left and right")]),
         new("panels", "Panels", "Motion", "The old slide splits into panels that lift away one after another.", "", 1100,
             [new("alternate", "Alternate"), new("up", "Up"), new("down", "Down")]),
+        new("parallax", "Parallax", "Motion", "Background and objects travel at different depths, like a camera dolly.", "\uE8AB", 1200, FromSides),
         new("float", "Float", "Motion", "The old slide lifts off and floats away, revealing the new one beneath.", "", 1100, []),
 
         new("depth", "Depth", "Depth", "The old slide recedes into the dark as the new one arrives from in front.", "", 1100, []),
         new("portal", "Portal", "Depth", "Fly through the old slide into the new one.", "", 1100, []),
+        new("dive", "Dive", "Depth", "The camera dives into an object on the old slide and surfaces in the new one. Uses the object Morph would pair, or the largest one.", "\uE8A3", 1300, []),
         new("orbit", "Orbit", "Depth", "Slides swing past each other in perspective.", "", 1100, [new("right", "From right"), new("left", "From left")]),
         new("focus", "Focus pull", "Depth", "A camera rack focus: the old slide melts out of focus and the new one sharpens in.", "", 1200, []),
         new("frost", "Frost", "Depth", "The slide frosts over like glass, then clears on the new one.", "", 1200, []),

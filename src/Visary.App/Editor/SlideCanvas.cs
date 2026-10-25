@@ -242,7 +242,7 @@ public sealed partial class SlideCanvas : Grid
         return Math.Abs(lx) <= e.Width / 2 + pad && Math.Abs(ly) <= e.Height / 2 + pad;
     }
 
-    SlideElement? HitTest(Point p) => _ed.Current.Elements.LastOrDefault(e => Contains(e, p));
+    SlideElement? HitTest(Point p) => _ed.Current.Elements.LastOrDefault(e => !e.Hidden && Contains(e, p));
 
     static bool IsKeyDown(Windows.System.VirtualKey k) => InputKeyboardSource.GetKeyStateForCurrentThread(k).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
 
@@ -266,12 +266,14 @@ public sealed partial class SlideCanvas : Grid
             return;
         }
         var sel = _ed.Selection.ToList();
+        // Clicking any member selects its whole group; Alt+click picks one object inside a group.
+        var unit = IsKeyDown(Windows.System.VirtualKey.Menu) ? [hit.Id] : _ed.GroupOf(hit.Id);
         if (shift)
         {
-            if (sel.Contains(hit.Id)) sel.Remove(hit.Id); else sel.Add(hit.Id);
+            if (unit.All(sel.Contains)) sel.RemoveAll(unit.Contains); else sel.AddRange(unit.Where(u => !sel.Contains(u)));
             _ed.Select(sel);
         }
-        else if (!sel.Contains(hit.Id)) _ed.Select([hit.Id]);
+        else if (!unit.All(sel.Contains)) _ed.Select(unit);
         var movable = _ed.SelectedElements.Where(x => !x.Locked).ToList();
         if (movable.Count == 0) return;
         var box = Bounds(movable);
@@ -376,7 +378,7 @@ public sealed partial class SlideCanvas : Grid
             var r = new RectD(Math.Min(m.Start.X, p.X), Math.Min(m.Start.Y, p.Y), Math.Abs(p.X - m.Start.X), Math.Abs(p.Y - m.Start.Y));
             if (r.Width > 3 || r.Height > 3)
             {
-                var hits = _ed.Current.Elements.Where(x => x.Bounds.Intersects(r)).Select(x => x.Id);
+                var hits = _ed.Current.Elements.Where(x => !x.Hidden && x.Bounds.Intersects(r)).SelectMany(x => _ed.GroupOf(x.Id)).Distinct();
                 _ed.Select(m.Additive ? _ed.Selection.Concat(hits) : hits);
             }
         }
@@ -431,7 +433,15 @@ public sealed partial class SlideCanvas : Grid
         var pt = e.GetPosition(_page);
         var hit = HitTest(new Point(pt.X / Zoom, pt.Y / Zoom));
         if (hit is ITextHost && hit is not ShapeElement { IsLine: true } && !hit.Locked) BeginTextEdit(hit.Id);
+        else if (hit != null)
+        {
+            _ed.Select([hit.Id]);
+            FormatRequested?.Invoke();
+        }
     }
+
+    /// <summary>Raised when the user double clicks an object that has no inline editor (tables, pictures, icons).</summary>
+    public event Action? FormatRequested;
 
     public void BeginTextEdit(string id)
     {
@@ -501,33 +511,75 @@ public sealed partial class SlideCanvas : Grid
 
     /* ---------------- context menu and drop ---------------- */
 
+    /// <summary>Raised when the context menu asks to show the Selection pane.</summary>
+    public event Action? SelectionPaneRequested;
+
+    /// <summary>Right click opens a PowerPoint style mini toolbar with a menu under it.</summary>
     void OnRightTapped(object sender, RightTappedRoutedEventArgs e)
     {
         var pt = e.GetPosition(_page);
         var hit = HitTest(new Point(pt.X / Zoom, pt.Y / Zoom));
-        if (hit != null && !_ed.Selection.Contains(hit.Id)) _ed.Select([hit.Id]);
-        var menu = new MenuFlyout();
+        if (hit != null && !_ed.Selection.Contains(hit.Id)) _ed.Select(_ed.GroupOf(hit.Id));
+        var menu = new CommandBarFlyout { Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.TopEdgeAlignedLeft };
+        AppBarButton Bar(string glyph, string label, Action run, bool enabled = true)
+        {
+            var b = new AppBarButton { Icon = Ui.Icon(glyph), Label = label, IsEnabled = enabled };
+            ToolTipService.SetToolTip(b, label);
+            b.Click += (_, _) => { menu.Hide(); run(); };
+            return b;
+        }
+        AppBarButton Item(string glyph, string label, Action run, bool enabled = true)
+        {
+            var b = Bar(glyph, label, run, enabled);
+            ToolTipService.SetToolTip(b, null);
+            return b;
+        }
         if (hit != null)
         {
-            menu.Items.Add(Ui.Item("Cut", _ed.Cut, ""));
-            menu.Items.Add(Ui.Item("Copy", _ed.Copy, ""));
-            menu.Items.Add(Ui.Item("Paste", _ed.Paste, ""));
-            menu.Items.Add(Ui.Item("Duplicate", _ed.DuplicateSelection, ""));
-            menu.Items.Add(Ui.Item("Delete", _ed.DeleteSelection, ""));
-            menu.Items.Add(new MenuFlyoutSeparator());
-            menu.Items.Add(Ui.Item("Bring to front", () => _ed.Arrange(ZOrder.Front), ""));
-            menu.Items.Add(Ui.Item("Send to back", () => _ed.Arrange(ZOrder.Back), ""));
-            menu.Items.Add(Ui.Item(hit.Locked ? "Unlock" : "Lock", () => _ed.UpdateSelected(x => x.Locked = !hit.Locked), ""));
-            if (hit is ITextHost) menu.Items.Add(Ui.Item("Edit text", () => BeginTextEdit(hit.Id), ""));
+            if (hit is ITextHost && hit is not ShapeElement { IsLine: true })
+            {
+                var st = ((ITextHost)hit).Style;
+                menu.PrimaryCommands.Add(Bar("\uE8DD", st.Bold ? "Remove bold" : "Bold", () => _ed.UpdateSelected(x => { if (x is ITextHost h) h.Style.Bold = !st.Bold; })));
+                menu.PrimaryCommands.Add(Bar("\uE8DB", st.Italic ? "Remove italic" : "Italic", () => _ed.UpdateSelected(x => { if (x is ITextHost h) h.Style.Italic = !st.Italic; })));
+                menu.PrimaryCommands.Add(Bar("\uE8E4", "Center text", () => _ed.UpdateSelected(x => { if (x is ITextHost h) h.Style.Align = TextAlign.Center; })));
+            }
+            menu.PrimaryCommands.Add(Bar("\uE8C8", "Duplicate", _ed.DuplicateSelection));
+            menu.PrimaryCommands.Add(Bar("\uE746", "Bring forward", () => _ed.Arrange(ZOrder.Forward)));
+            menu.PrimaryCommands.Add(Bar("\uE747", "Send backward", () => _ed.Arrange(ZOrder.Backward)));
+            menu.PrimaryCommands.Add(Bar("\uE74D", "Delete", _ed.DeleteSelection));
+
+            menu.SecondaryCommands.Add(Item("\uE8C6", "Cut", _ed.Cut));
+            menu.SecondaryCommands.Add(Item("\uE8C8", "Copy", _ed.Copy));
+            menu.SecondaryCommands.Add(Item("\uE77F", "Paste", () => PasteRequested?.Invoke()));
+            menu.SecondaryCommands.Add(new AppBarSeparator());
+            if (hit is ITextHost && hit is not ShapeElement { IsLine: true })
+                menu.SecondaryCommands.Add(Item("\uE70F", "Edit text", () => BeginTextEdit(hit.Id), !hit.Locked));
+            if (hit is TableElement)
+                menu.SecondaryCommands.Add(Item("\uE80A", "Edit table", () => FormatRequested?.Invoke()));
+            menu.SecondaryCommands.Add(Item("\uF0E2", "Group", _ed.Group, _ed.CanGroup));
+            menu.SecondaryCommands.Add(Item("\uF5ED", "Ungroup", _ed.Ungroup, _ed.CanUngroup));
+            menu.SecondaryCommands.Add(Item("\uE8A5", "Bring to front", () => _ed.Arrange(ZOrder.Front)));
+            menu.SecondaryCommands.Add(Item("\uE8A5", "Send to back", () => _ed.Arrange(ZOrder.Back)));
+            menu.SecondaryCommands.Add(new AppBarSeparator());
+            menu.SecondaryCommands.Add(Item(hit.Locked ? "\uE785" : "\uE72E", hit.Locked ? "Unlock" : "Lock", () => _ed.UpdateSelected(x => x.Locked = !hit.Locked)));
+            menu.SecondaryCommands.Add(Item("\uED1A", "Hide", () => { foreach (var id in _ed.Selection.ToList()) _ed.SetHidden(id, true); _ed.ClearSelection(); }));
+            menu.SecondaryCommands.Add(Item("\uE8FD", "Selection pane", () => SelectionPaneRequested?.Invoke()));
+            menu.SecondaryCommands.Add(Item("\uE790", "Format", () => FormatRequested?.Invoke()));
         }
         else
         {
-            menu.Items.Add(Ui.Item("Paste", _ed.Paste, ""));
-            menu.Items.Add(Ui.Item("Select all", _ed.SelectAll, ""));
-            menu.Items.Add(Ui.Item("New slide", () => _ed.AddSlide(), ""));
+            menu.PrimaryCommands.Add(Bar("\uE77F", "Paste", () => PasteRequested?.Invoke()));
+            menu.PrimaryCommands.Add(Bar("\uE8B3", "Select all", _ed.SelectAll));
+            menu.PrimaryCommands.Add(Bar("\uE710", "New slide", () => _ed.AddSlide()));
+            menu.SecondaryCommands.Add(Item("\uE8FD", "Selection pane", () => SelectionPaneRequested?.Invoke()));
+            menu.SecondaryCommands.Add(Item("\uE790", "Format background", () => FormatRequested?.Invoke()));
+            menu.SecondaryCommands.Add(Item("\uE80A", "Show gridlines", () => { ShowGridlines = !ShowGridlines; Rebuild(); }));
         }
-        menu.ShowAt(_page, pt);
+        menu.ShowAt(_page, new Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowOptions { Position = pt, ShowMode = Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowMode.Standard });
     }
+
+    /// <summary>Raised for Paste so the window can read the system clipboard first.</summary>
+    public event Action? PasteRequested;
 
     async void OnDrop(object sender, DragEventArgs e)
     {
@@ -554,11 +606,27 @@ public sealed partial class SlideCanvas : Grid
         Rebuild();
     }
 
-    public async Task PreviewTransitionAsync()
+    TransitionStage? _previewStage;
+    int _previewGeneration;
+
+    /// <summary>
+    /// Plays the transition into the current slide over the canvas. <paramref name="settings"/>
+    /// previews a different transition without applying it (live preview on hover).
+    /// </summary>
+    public async Task PreviewTransitionAsync(Core.Model.TransitionSettings? settings = null)
     {
+        _previewStage?.Skip();
+        var gen = ++_previewGeneration;
         var i = _ed.CurrentIndex;
         var from = i > 0 ? _ed.Doc.Slides[i - 1] : null;
+        var to = _ed.Current;
+        if (settings != null)
+        {
+            to = Core.Documents.DocumentCloner.Clone(_ed.Current);
+            to.Transition = settings;
+        }
         var stage = new TransitionStage(_ed.Doc);
+        _previewStage = stage;
         _previewHost.Children.Clear();
         _previewHost.Children.Add(new Viewbox { Child = stage, Margin = new Thickness(36), Stretch = Stretch.Uniform });
         _previewHost.Visibility = Visibility.Visible;
@@ -566,16 +634,23 @@ public sealed partial class SlideCanvas : Grid
         void Close(object s, TappedRoutedEventArgs a) => stage.Skip();
         try
         {
-            await stage.PreviewAsync(from, _ed.Current, _ed.Theme.Accents[0]);
-            await Task.Delay(400);
+            await stage.PreviewAsync(from, to, _ed.Theme.Accents[0]);
+            if (gen == _previewGeneration) await Task.Delay(350);
         }
         finally
         {
             _previewHost.Tapped -= Close;
-            _previewHost.Visibility = Visibility.Collapsed;
-            _previewHost.Children.Clear();
+            if (gen == _previewGeneration)
+            {
+                _previewHost.Visibility = Visibility.Collapsed;
+                _previewHost.Children.Clear();
+                _previewStage = null;
+            }
         }
     }
+
+    /// <summary>Stops a running preview (for example when the pointer leaves a gallery tile).</summary>
+    public void CancelPreview() => _previewStage?.Skip();
 }
 
 static class ElementExtensions

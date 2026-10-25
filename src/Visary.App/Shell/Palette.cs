@@ -35,23 +35,32 @@ public static class Palette
 
     public static event Action? Changed;
 
+    /// <summary>When the window uses Mica, the chrome brushes let some of the material show through.</summary>
+    public static bool Translucent { get; set; }
+
+    static Color Chrome(string hex, byte alpha)
+    {
+        var c = ColorUtil.Parse(hex);
+        return Translucent ? ColorUtil.WithAlpha(c, alpha) : c;
+    }
+
     static Palette() => Apply(AppThemes.All[0]);
 
     public static void Apply(AppPalette p)
     {
         Current = p;
-        TitleBar.Color = ColorUtil.Parse(p.TitleBar);
+        TitleBar.Color = Chrome(p.TitleBar, 0xE0);
         TitleBarText.Color = ColorUtil.Parse(p.TitleBarText);
-        TabStrip.Color = ColorUtil.Parse(p.TabStrip);
+        TabStrip.Color = Chrome(p.TabStrip, 0xD0);
         TabText.Color = ColorUtil.Parse(p.TabText);
         TabSelectedText.Color = ColorUtil.Parse(p.TabSelectedText);
-        Ribbon.Color = ColorUtil.Parse(p.Ribbon);
+        Ribbon.Color = Chrome(p.Ribbon, 0xD8);
         RibbonText.Color = ColorUtil.Parse(p.RibbonText);
         Accent.Color = ColorUtil.Parse(p.Accent);
         AccentText.Color = ColorUtil.Parse(p.AccentText);
         AccentSoft.Color = ColorUtil.Parse(p.AccentSoft);
-        Pane.Color = ColorUtil.Parse(p.Pane);
-        PaneAlt.Color = ColorUtil.Parse(p.PaneAlt);
+        Pane.Color = Chrome(p.Pane, 0xB8);
+        PaneAlt.Color = Chrome(p.PaneAlt, 0xE8);
         Border.Color = ColorUtil.Parse(p.Border);
         Canvas.Color = ColorUtil.Parse(p.Canvas);
         Text.Color = ColorUtil.Parse(p.Text);

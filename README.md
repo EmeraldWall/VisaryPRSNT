@@ -4,16 +4,18 @@ A presentation app for Windows, built with WinUI 3 and the Windows App SDK. It l
 
 ## Signature transitions
 
-25 transitions in six families. Every one has a duration, a motion feel (Smooth, Fluid, Snappy, Spring, Linear) and an intensity (Subtle, Balanced, Bold), and most have effect options.
+27 transitions in six families. Every one has a duration, a motion feel (Smooth, Fluid, Snappy, Spring, Linear) and an intensity (Subtle, Balanced, Bold), and most have effect options.
 
 | Family | Transitions |
 | --- | --- |
 | Essentials | Fade, **Silk** (crossfade through a whisper of blur and a slow zoom), **Drift** (cinematic push in) |
-| Motion | **Glide** (parallax, the old slide sinks back), **Velocity** (push with motion blur), **Stack** (lands like a card), **Ribbon** (two halves meet), **Panels** (the old slide lifts away in panels), **Float** |
-| Depth | **Depth** (the old slide recedes into the dark), **Portal** (fly through), **Orbit** (3D swing), **Focus pull** (camera rack focus), **Frost** (frosted glass) |
+| Motion | **Glide** (parallax, the old slide sinks back), **Velocity** (push with motion blur), **Stack** (lands like a card), **Ribbon** (two halves meet), **Panels** (the old slide lifts away in panels), **Parallax** (backgrounds and objects travel at different depths, like a camera dolly), **Float** |
+| Depth | **Depth** (the old slide recedes into the dark), **Portal** (fly through), **Dive** (the camera dives into an object on the old slide and surfaces in the new one), **Orbit** (3D swing), **Focus pull** (camera rack focus), **Frost** (frosted glass) |
 | Light | **Light sweep** (a band of light rides a feathered edge), **Aurora** (blooms open, haloed in the theme colour), **Bloom**, **Spotlight**, **Cinematic** (film letterbox) |
 | Reveal | **Feather** (wide soft wipe), **Shutter**, **Mosaic** (tiles surface in a wave) |
 | Smart | **Cascade** (objects leave and arrive one by one in reading order), **Morph** (objects on both slides glide, resize and turn into place) |
+
+Hover any transition tile for a moment and it previews live on your slide without being applied, like Office live preview.
 
 How they stay elegant:
 
@@ -24,11 +26,25 @@ How they stay elegant:
 ## Editor
 
 * PowerPoint style ribbon (File, Home, Insert, Design, Transitions, Animations, Slide Show, View), slide thumbnails with drag to reorder, notes, status bar with zoom
+* Normal and Slide Sorter views
+* Right click opens a PowerPoint style mini toolbar (CommandBarFlyout) with bold, italic, duplicate, arrange and delete, plus a menu with group, lock, hide, Selection pane and format
+* Selection pane: every object top first, rename, hide, lock and restack
 * App colours similar to PowerPoint by default, with 9 Office themes to choose from (PowerPoint colourful, PowerPoint white, Dark gray, Black, Midnight, Ocean, Forest, Lavender, Graphite and gold)
-* Text boxes, 25 shapes, lines and arrows, pictures (insert or drag and drop), with fills, gradients, outlines, corner radius, fonts, bullets and numbering
+* Text boxes, 25 shapes, lines and arrows, pictures (insert or drag and drop), tables (grid picker, header and banded rows, cell editor), 60 vector icons from Segoe Fluent Icons, with fills, gradients, outlines, corner radius, fonts, bullets and numbering
+* Group and ungroup (Ctrl+G, Ctrl+Shift+G, Alt+click selects inside a group)
+* Paste pictures, files and text copied in other apps; copied objects also put their text on the Windows clipboard
+* Footer text and slide numbers
 * Select, multi select, marquee, move with smart guides, resize, rotate, align, distribute, arrange, lock, copy, paste, duplicate, undo and redo, find and replace
 * 10 slide design themes using fonts that ship with Windows, 8 layouts, gradient and picture backgrounds, 5 slide sizes
 * 18 object animations (entrance, emphasis, exit) with On click, With previous and After previous timing
+* Keyboard shortcuts list (F1)
+
+## Modern WinUI 3
+
+* Mica material behind the window on Windows 11 (toggle in View or Options), solid colours on Windows 10
+* SelectorBar tabs in the task pane, CommandBarFlyout on the canvas, InfoBar notifications, TeachingTip welcome tour
+* The Windows App SDK 1.8 file pickers (`Microsoft.Windows.Storage.Pickers`), with the older pickers as a fallback
+* Office style AutoSave switch in the title bar once the file has a location
 
 ## Slide show
 
@@ -37,7 +53,8 @@ How they stay elegant:
 ## Files
 
 * Saves `.vsry` files (a zip with the presentation and its pictures), with recent files and auto recovery
-* Exports to PowerPoint `.pptx`. Each signature transition becomes its closest PowerPoint transition, and Morph stays Morph because objects keep matching names
+* Exports to PowerPoint `.pptx` (tables become real PowerPoint tables). Each signature transition becomes its closest PowerPoint transition, and Morph stays Morph because objects keep matching names
+* Exports to PDF (one page per slide) and to PNG pictures at HD, Full HD or 4K
 
 ## Build and run
 
@@ -73,5 +90,6 @@ tests/Visary.Core.Tests
 
 ## Not done yet
 
-* Opening `.pptx` files, rich text with mixed formatting inside one text box, tables, charts, video and audio
+* Opening `.pptx` files, rich text with mixed formatting inside one text box, merged table cells, charts, video and audio
+* The on device Windows AI APIs (such as image description) need a packaged app with package identity, so they are left out of this unpackaged build
 * Object animations are not written to `.pptx` (transitions are)

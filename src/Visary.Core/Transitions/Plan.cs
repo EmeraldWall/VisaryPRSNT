@@ -211,6 +211,6 @@ public sealed record SceneElement(string Id, string? Name, string Kind, RectD Bo
 
 public sealed record Scene(IReadOnlyList<SceneElement> Elements)
 {
-    public static Scene From(Slide s) => new(s.Elements.Select(e => new SceneElement(e.Id, e.Name, e.GetType().Name, e.Bounds, e.Rotation, e.Opacity)).ToList());
+    public static Scene From(Slide s) => new(s.Elements.Where(e => !e.Hidden).Select(e => new SceneElement(e.Id, e.Name, e.GetType().Name, e.Bounds, e.Rotation, e.Opacity)).ToList());
     public static readonly Scene Empty = new([]);
 }

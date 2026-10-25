@@ -90,6 +90,36 @@ public class EditorTests
     }
 
     [Fact]
+    public void Groups_select_together_and_paste_as_new_groups()
+    {
+        var ed = New();
+        var a = ed.InsertShape(ShapeKind.Star5);
+        var b = ed.InsertShape(ShapeKind.Ellipse);
+        ed.Select([a.Id, b.Id]);
+        ed.Group();
+        Assert.Equal(new[] { a.Id, b.Id }, ed.GroupOf(a.Id));
+        ed.Copy();
+        ed.Paste();
+        var pasted = ed.SelectedElements.ToList();
+        Assert.Equal(2, pasted.Count);
+        Assert.Single(pasted.Select(e => e.GroupId).Distinct());
+        Assert.NotEqual(a.GroupId, pasted[0].GroupId);
+        ed.Ungroup();
+        Assert.All(ed.SelectedElements, e => Assert.Null(e.GroupId));
+    }
+
+    [Fact]
+    public void Hidden_objects_leave_transitions_and_tables_find_text()
+    {
+        var ed = New();
+        var t = ed.InsertTable(3, 3);
+        ed.UpdateTable(t.Id, x => x.Rows[2][1] = "quarterly revenue");
+        Assert.Contains(ed.Find("revenue", false), h => h.elementId == t.Id);
+        ed.SetHidden(t.Id, true);
+        Assert.DoesNotContain(Visary.Core.Transitions.Scene.From(ed.Current).Elements, e => e.Id == t.Id);
+    }
+
+    [Fact]
     public void Find_and_replace_across_slides()
     {
         var ed = New();
@@ -97,5 +127,44 @@ public class EditorTests
         var n = ed.ReplaceAll("Morph", "Glide", true);
         Assert.True(n > 0);
         Assert.Empty(ed.Find("Morph", true));
+    }
+
+    [Fact]
+    public void Copy_reports_text_and_duplicate_keeps_the_clipboard()
+    {
+        var ed = New();
+        ed.GoTo(1);
+        var text = ed.Current.Elements.OfType<TextElement>().First(t => t.Text.Length > 0);
+        string? copied = null;
+        ed.Copied += t => copied = t;
+        ed.Select([text.Id]);
+        ed.Copy();
+        Assert.Equal(text.Text.Trim(), copied);
+
+        var other = ed.InsertShape(ShapeKind.Ellipse);
+        copied = null;
+        ed.DuplicateSelection();
+        Assert.Null(copied);
+        Assert.Equal(2, ed.Current.Elements.Count(e => e is ShapeElement { Kind: ShapeKind.Ellipse }));
+
+        // Paste still gives the text that was copied, not the duplicated shape.
+        var before = ed.Current.Elements.OfType<TextElement>().Count(t => t.Text == text.Text);
+        ed.Paste();
+        Assert.Equal(before + 1, ed.Current.Elements.OfType<TextElement>().Count(t => t.Text == text.Text));
+        _ = other;
+    }
+
+    [Fact]
+    public void Pasted_text_becomes_a_sized_text_box_and_saving_is_not_a_content_change()
+    {
+        var ed = New();
+        var t = ed.InsertTextBox(text: "one\ntwo\nthree");
+        Assert.Equal("one\ntwo\nthree", t.Text);
+        Assert.True(t.Height > t.Style.FontSize * 3);
+        ChangeKind? seen = null;
+        ed.Changed += k => seen = k;
+        ed.MarkSaved("x.vsry");
+        Assert.Equal(ChangeKind.None, seen);
+        Assert.False(ed.IsDirty);
     }
 }

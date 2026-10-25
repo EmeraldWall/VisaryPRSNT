@@ -51,11 +51,15 @@ public sealed partial class SlideView : Grid
         Children.Add(ElementsLayer);
         foreach (var e in slide.Elements)
         {
+            if (e.Hidden) continue;
             var parts = BuildElement(e);
             if (e.Id == hiddenElementId) parts.Host.Opacity = 0;
             Parts[e.Id] = parts;
             ElementsLayer.Children.Add(parts.Host);
         }
+        // Footer text and slide numbers draw above the slide content but are not objects.
+        foreach (var d in SlideDecorations.For(pres, slide))
+            ElementsLayer.Children.Add(BuildElement(d).Host);
         _ = mode;
     }
 
@@ -131,6 +135,20 @@ public sealed partial class SlideView : Grid
                 }
                 content.Children.Add(border);
                 break;
+            case TableElement t:
+                content.Children.Add(TableGrid(t));
+                break;
+            case Core.Model.IconElement ic:
+                content.Children.Add(new Viewbox
+                {
+                    Stretch = Stretch.Uniform,
+                    Child = new TextBlock
+                    {
+                        Text = ic.Glyph, FontFamily = IconFont, FontSize = 100, Foreground = ColorUtil.Brush(ic.Color),
+                        TextLineBounds = TextLineBounds.Tight, IsTextScaleFactorEnabled = false,
+                    },
+                });
+                break;
         }
         var buildLayer = new Grid { Width = e.Width, Height = e.Height, Children = { content } };
         var host = new Grid { Width = e.Width, Height = e.Height, Opacity = e.Opacity, Children = { buildLayer } };
@@ -138,6 +156,42 @@ public sealed partial class SlideView : Grid
         Canvas.SetLeft(host, e.X);
         Canvas.SetTop(host, e.Y);
         return new ElementParts(host, buildLayer, content);
+    }
+
+    static readonly FontFamily IconFont = new("Segoe Fluent Icons, Segoe MDL2 Assets");
+
+    public static Grid TableGrid(TableElement t)
+    {
+        t.Normalize();
+        var grid = new Grid();
+        var rows = Math.Max(1, t.Rows.Count);
+        var cols = Math.Max(1, t.ColumnCount);
+        for (var r = 0; r < rows; r++) grid.RowDefinitions.Add(new RowDefinition());
+        for (var c = 0; c < cols; c++) grid.ColumnDefinitions.Add(new ColumnDefinition());
+        var border = ColorUtil.Brush(t.BorderColor);
+        for (var r = 0; r < rows; r++)
+        {
+            var header = t.HeaderRow && r == 0;
+            var fill = ColorUtil.Brush(header ? t.HeaderFill : t.BandedRows && r % 2 == 0 ? t.BandFill : t.CellFill);
+            var st = t.Style.Clone();
+            if (header) { st.Color = t.HeaderTextColor; st.Bold = true; }
+            for (var c = 0; c < cols; c++)
+            {
+                // Each cell draws its right and bottom edge; the first row and column add the outer edge.
+                var w = t.BorderWidth;
+                var cell = new Border
+                {
+                    Background = fill, BorderBrush = border,
+                    BorderThickness = new Thickness(c == 0 ? w : 0, r == 0 ? w : 0, w, w),
+                    Padding = new Thickness(Math.Max(4, st.FontSize * .35), 2, Math.Max(4, st.FontSize * .35), 2),
+                    Child = TextBlockFor(t.Rows[r][c], st),
+                };
+                Grid.SetRow(cell, r);
+                Grid.SetColumn(cell, c);
+                grid.Children.Add(cell);
+            }
+        }
+        return grid;
     }
 
     /// <summary>Paragraphs with optional bullets or numbers and a hanging indent.</summary>

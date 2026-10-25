@@ -22,6 +22,10 @@ public sealed partial class Ribbon : Grid
         HorizontalScrollMode = ScrollMode.Auto, VerticalScrollMode = ScrollMode.Disabled, Height = 104,
     };
     RibbonTab _tab = RibbonTab.Home;
+    readonly Dictionary<RibbonTab, Button> _tabButtons = [];
+
+    /// <summary>The tab header button, used as the target of the first run tour.</summary>
+    public Button? HeaderFor(RibbonTab tab) => _tabButtons.GetValueOrDefault(tab);
     string _lastTransitionKey = "";
 
     DocumentEditor Ed => _w.Editor;
@@ -88,6 +92,7 @@ public sealed partial class Ribbon : Grid
     void BuildStrip()
     {
         _tabStrip.Children.Clear();
+        _tabButtons.Clear();
         var file = TabButton("File", false);
         file.Click += (_, _) => _w.ShowBackstage();
         _tabStrip.Children.Add(file);
@@ -95,6 +100,7 @@ public sealed partial class Ribbon : Grid
         {
             var b = TabButton(label, tab == _tab);
             b.Click += (_, _) => Tab = tab;
+            _tabButtons[tab] = b;
             _tabStrip.Children.Add(b);
         }
     }
@@ -178,7 +184,7 @@ public sealed partial class Ribbon : Grid
         newSlide.Click += (_, _) => Ed.AddSlide();
         row.Children.Add(Ui.Group("Slides", newSlide,
             Ui.Rows(Ui.Small("", "Duplicate", () => Ed.DuplicateSlide()), Ui.Small("", "Delete", () => Ed.DeleteSlide()), Ui.Small("", Ed.Current.Hidden ? "Unhide" : "Hide", () => Ed.ToggleHidden()))));
-        row.Children.Add(Ui.Group("Clipboard", Ui.Large("", "Paste", Ed.Paste, "Paste (Ctrl+V)"),
+        row.Children.Add(Ui.Group("Clipboard", Ui.Large("", "Paste", () => _ = _w.PasteAsync(), "Paste (Ctrl+V), including pictures and text from other apps"),
             Ui.Rows(Ui.Small("", "Cut", Ed.Cut), Ui.Small("", "Copy", Ed.Copy), Ui.Small("", "Duplicate", Ed.DuplicateSelection, "Duplicate (Ctrl+D)"))));
 
         var target = Ed.SelectedElements.OfType<ITextHost>().FirstOrDefault();
@@ -216,12 +222,18 @@ public sealed partial class Ribbon : Grid
         arrange.Items.Add(new MenuFlyoutSeparator());
         foreach (var (a, label) in new[] { (AlignKind.Left, "Align left"), (AlignKind.Center, "Align center"), (AlignKind.Right, "Align right"), (AlignKind.Top, "Align top"), (AlignKind.Middle, "Align middle"), (AlignKind.Bottom, "Align bottom"), (AlignKind.DistributeHorizontally, "Distribute horizontally"), (AlignKind.DistributeVertically, "Distribute vertically") })
             arrange.Items.Add(Ui.Item(label, () => Ed.Align(a)));
+        arrange.Items.Add(new MenuFlyoutSeparator());
+        arrange.Items.Add(new MenuFlyoutItem { Text = "Group", IsEnabled = Ed.CanGroup, KeyboardAcceleratorTextOverride = "Ctrl+G" }.Also(i => i.Click += (_, _) => Ed.Group()));
+        arrange.Items.Add(new MenuFlyoutItem { Text = "Ungroup", IsEnabled = Ed.CanUngroup, KeyboardAcceleratorTextOverride = "Ctrl+Shift+G" }.Also(i => i.Click += (_, _) => Ed.Ungroup()));
+        arrange.Items.Add(new MenuFlyoutSeparator());
+        arrange.Items.Add(Ui.Item("Selection pane", () => _w.Side.Mode = PaneMode.Selection, "\uE8FD"));
         row.Children.Add(Ui.Group("Drawing",
             Ui.FlyoutButton("", "Shapes", ShapeGallery(), large: true),
             Ui.Menu("", "Arrange", arrange, large: true)));
         row.Children.Add(Ui.Group("Editing", Ui.Rows(
             Ui.Small("", "Find and replace", () => _ = _w.FindReplaceAsync(), "Find and replace (Ctrl+H)"),
-            Ui.Small("", "Select all", Ed.SelectAll, "Select all (Ctrl+A)"))));
+            Ui.Small("", "Select all", Ed.SelectAll, "Select all (Ctrl+A)"),
+            Ui.Small("\uE8FD", "Selection pane", () => _w.Side.Mode = PaneMode.Selection))));
     }
 
     static MenuFlyout SpacingMenu(Action<Action<TextStyle>, string> set)
@@ -235,14 +247,76 @@ public sealed partial class Ribbon : Grid
     void Insert(StackPanel row)
     {
         row.Children.Add(Ui.Group("Slides", Ui.Menu("", "New slide", LayoutMenu(), large: true)));
+        row.Children.Add(Ui.Group("Tables", Ui.FlyoutButton("\uE80A", "Table", TablePicker(), large: true)));
         row.Children.Add(Ui.Group("Images", Ui.Large("", "Pictures", () => _ = Commands.InsertPictureAsync(Ed))));
-        row.Children.Add(Ui.Group("Illustrations", Ui.FlyoutButton("", "Shapes", ShapeGallery(), large: true)));
+        row.Children.Add(Ui.Group("Illustrations", Ui.FlyoutButton("", "Shapes", ShapeGallery(), large: true),
+            Ui.FlyoutButton("\uE734", "Icons", IconGallery(), large: true)));
         row.Children.Add(Ui.Group("Text",
             Ui.Large("", "Text box", () => _w.Canvas.BeginTextEdit(Ed.InsertTextBox().Id)),
             Ui.Large("", "Heading", () => _w.Canvas.BeginTextEdit(Ed.InsertTextBox(heading: true).Id))));
         row.Children.Add(Ui.Group("Lines",
             Ui.Large("", "Line", () => Ed.InsertShape(ShapeKind.Line)),
             Ui.Large("", "Arrow", () => Ed.InsertShape(ShapeKind.ArrowLine))));
+    }
+
+    /// <summary>The PowerPoint table grid: hover to choose rows and columns, click to insert.</summary>
+    Flyout TablePicker()
+    {
+        const int Cols = 10, Rows = 8;
+        var flyout = new Flyout();
+        var label = Ui.Text("Insert table", 12, Palette.Text, bold: true);
+        var grid = new Grid { RowSpacing = 3, ColumnSpacing = 3 };
+        var cells = new Border[Rows, Cols];
+        for (var c = 0; c < Cols; c++) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
+        for (var r = 0; r < Rows; r++)
+        {
+            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(18) });
+            for (var c = 0; c < Cols; c++)
+            {
+                int rr = r, cc = c;
+                var cell = new Border { BorderBrush = Palette.Border, BorderThickness = new Thickness(1), Background = Palette.PaneAlt, CornerRadius = new CornerRadius(2) };
+                cell.PointerEntered += (_, _) =>
+                {
+                    label.Text = $"{cc + 1} x {rr + 1} table";
+                    for (var y = 0; y < Rows; y++)
+                    for (var x = 0; x < Cols; x++)
+                    {
+                        var on = y <= rr && x <= cc;
+                        cells[y, x].Background = on ? Palette.AccentSoft : Palette.PaneAlt;
+                        cells[y, x].BorderBrush = on ? Palette.Accent : Palette.Border;
+                    }
+                };
+                cell.Tapped += (_, _) =>
+                {
+                    flyout.Hide();
+                    var t = Ed.InsertTable(rr + 1, cc + 1);
+                    _w.Side.Mode = PaneMode.Format;
+                    _ = t;
+                };
+                cells[r, c] = cell;
+                Grid.SetRow(cell, r);
+                Grid.SetColumn(cell, c);
+                grid.Children.Add(cell);
+            }
+        }
+        flyout.Content = new StackPanel { Spacing = 8, Children = { label, grid } };
+        return flyout;
+    }
+
+    Flyout IconGallery()
+    {
+        var flyout = new Flyout();
+        flyout.Content = new StackPanel
+        {
+            Spacing = 8, Width = 330,
+            Children =
+            {
+                Ui.Text("Icons", 12, Palette.Text, bold: true),
+                SidePane.IconPicker(g => { flyout.Hide(); Ed.InsertIcon(g); }),
+                Ui.Text("Icons are vector glyphs from Segoe Fluent Icons. They take the theme colour and stay sharp at any size.", 11.5, Palette.SubtleText, wrap: TextWrapping.Wrap),
+            },
+        };
+        return flyout;
     }
 
     void Design(StackPanel row)
@@ -275,7 +349,8 @@ public sealed partial class Ribbon : Grid
         foreach (var s in Factory.Sizes) sizes.Items.Add(Ui.Item(s.Name, () => Ed.ResizeSlides(s.Width, s.Height)));
         row.Children.Add(Ui.Group("Customize",
             Ui.Menu("", "Slide size", sizes, large: true),
-            Ui.Large("", "Format background", () => _w.Side.Mode = PaneMode.Design)));
+            Ui.Large("", "Format background", () => _w.Side.Mode = PaneMode.Design),
+            Ui.Large("\uE8A1", "Header and footer", () => _w.Side.Mode = PaneMode.Design)));
     }
 
     void TransitionsTab(StackPanel row)
@@ -283,7 +358,8 @@ public sealed partial class Ribbon : Grid
         var t = Ed.Current.Transition;
         _lastTransitionKey = $"{Ed.Current.Id}|{t.Effect}|{t.Variant}|{t.Ease}|{t.Intensity}|{t.AdvanceOnClick}|{t.AdvanceAfterSeconds != null}";
         var info = TransitionCatalog.Get(t.Effect);
-        row.Children.Add(Ui.Group("Preview", Ui.Large("", "Preview", () => _ = _w.Canvas.PreviewTransitionAsync())));
+        row.Children.Add(Ui.Group("Preview", Ui.Large("", "Preview", () => _ = _w.Canvas.PreviewTransitionAsync()),
+            Ui.Rows(Ui.Check("Live preview", Settings.Current.LivePreview, v => { Settings.Current.LivePreview = v; Settings.Current.Save(); }))));
 
         var gallery = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 0, VerticalAlignment = VerticalAlignment.Center };
         foreach (var x in TransitionCatalog.All) gallery.Children.Add(_w.Side.TransitionTile(x, x.Id == t.Effect, 74));
@@ -346,6 +422,9 @@ public sealed partial class Ribbon : Grid
 
     void View(StackPanel row)
     {
+        row.Children.Add(Ui.Group("Presentation views",
+            Ui.Large("\uE8A1", "Normal", () => _w.SorterView = false),
+            Ui.Large("\uF0E2", "Slide Sorter", () => _w.SorterView = true)));
         row.Children.Add(Ui.Group("Show", Ui.Rows(
             Ui.Check("Gridlines", _w.Canvas.ShowGridlines, v => { _w.Canvas.ShowGridlines = v; _w.Canvas.Rebuild(); }),
             Ui.Check("Smart guides", _w.Canvas.SmartGuides, v => _w.Canvas.SmartGuides = v),
@@ -357,7 +436,9 @@ public sealed partial class Ribbon : Grid
         var themes = new MenuFlyout();
         foreach (var p in AppThemes.All)
             themes.Items.Add(new ToggleMenuFlyoutItem { Text = p.Name, IsChecked = p.Id == Palette.Current.Id }.Also(i => i.Click += (_, _) => _w.ApplyAppTheme(p.Id)));
-        row.Children.Add(Ui.Group("Window", Ui.Menu("", "Office theme", themes, large: true)));
+        row.Children.Add(Ui.Group("Window", Ui.Menu("", "Office theme", themes, large: true),
+            Ui.Rows(Ui.Check("Mica material", Settings.Current.Mica, v => _w.ApplyBackdrop(v)))));
+        row.Children.Add(Ui.Group("Help", Ui.Large("\uE765", "Keyboard shortcuts", () => _ = _w.ShortcutsAsync(), "Keyboard shortcuts (F1)")));
     }
 }
 

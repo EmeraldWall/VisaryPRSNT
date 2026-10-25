@@ -99,6 +99,8 @@ public sealed class Presentation
     public string ThemeId { get; set; } = "office";
     public bool Loop { get; set; }
     public bool ShowSlideNumbers { get; set; }
+    /// <summary>Footer text shown on every slide except title slides, empty for none.</summary>
+    public string FooterText { get; set; } = "";
     public List<Slide> Slides { get; set; } = [];
 
     /// <summary>Pictures, stored next to the JSON inside the .vsry package.</summary>

@@ -179,7 +179,24 @@ public sealed partial class Backstage : Grid
         var pptx = new Button { Content = Ui.Row(Ui.Icon("", 18), Ui.Text("PowerPoint presentation (.pptx)", 13.5)), Padding = new Thickness(16, 10, 16, 10) };
         pptx.Click += async (_, _) => { await Commands.ExportPptxAsync(_w.Editor); };
         p.Children.Add(pptx);
-        p.Children.Add(Ui.Text("Text, shapes, pictures, backgrounds, hidden slides and transitions are exported. Visary's signature transitions become their closest PowerPoint transition, and Morph stays Morph because objects keep matching names.", 12.5, Palette.SubtleText, wrap: TextWrapping.Wrap));
+        p.Children.Add(Ui.Text("Text, shapes, pictures, tables, icons, backgrounds, footers, hidden slides and transitions are exported. Visary's signature transitions become their closest PowerPoint transition, and Morph stays Morph because objects keep matching names.", 12.5, Palette.SubtleText, wrap: TextWrapping.Wrap));
+
+        var hidden = new CheckBox { Content = "Include hidden slides" };
+        var pdf = new Button { Content = Ui.Row(Ui.Icon("\uEA90", 18), Ui.Text("PDF document (.pdf)", 13.5)), Padding = new Thickness(16, 10, 16, 10) };
+        pdf.Click += async (_, _) => { await Commands.ExportPdfAsync(_w.Editor, hidden.IsChecked == true); };
+        p.Children.Add(pdf);
+        p.Children.Add(hidden);
+        p.Children.Add(Ui.Text("One page per slide, rendered exactly as it looks on screen. Good for handouts and sharing with people who do not have the app.", 12.5, Palette.SubtleText, wrap: TextWrapping.Wrap));
+
+        var size = Ui.Combo([(1280, "HD (1280 px)"), (1920, "Full HD (1920 px)"), (3840, "4K (3840 px)")], 1920, _ => { });
+        size.Width = 200;
+        var all = new Button { Content = Ui.Row(Ui.Icon("\uE8B9", 18), Ui.Text("Every slide as PNG", 13.5)), Padding = new Thickness(16, 10, 16, 10) };
+        var one = new Button { Content = Ui.Row(Ui.Icon("\uE91B", 18), Ui.Text("This slide as PNG", 13.5)), Padding = new Thickness(16, 10, 16, 10) };
+        int Width() => size.SelectedIndex switch { 0 => 1280, 2 => 3840, _ => 1920 };
+        all.Click += async (_, _) => { await Commands.ExportImagesAsync(_w.Editor, currentOnly: false, Width()); };
+        one.Click += async (_, _) => { await Commands.ExportImagesAsync(_w.Editor, currentOnly: true, Width()); };
+        p.Children.Add(Ui.Row(all, one, size));
+        p.Children.Add(Ui.Text("Pictures for social posts, documents and video editors.", 12.5, Palette.SubtleText, wrap: TextWrapping.Wrap));
         return p;
     }
 
@@ -211,6 +228,12 @@ public sealed partial class Backstage : Grid
             wrap.Children.Add(b);
         }
         p.Children.Add(wrap);
+        p.Children.Add(Ui.Text("Window", 16, Palette.Text, bold: true));
+        p.Children.Add(Ui.Check("Mica material behind the window (Windows 11)", Settings.Current.Mica, v => _w.ApplyBackdrop(v)));
+        p.Children.Add(Ui.Check("Live preview of transitions when hovering a tile", Settings.Current.LivePreview, v => { Settings.Current.LivePreview = v; Settings.Current.Save(); }));
+        var tour = new HyperlinkButton { Content = "Show the welcome tour again" };
+        tour.Click += (_, _) => { Settings.Current.SeenTour = false; Settings.Current.Save(); _w.HideBackstage(); _ = _w.TourAsync(); };
+        p.Children.Add(tour);
         p.Children.Add(Ui.Text("Slide show", 16, Palette.Text, bold: true));
         p.Children.Add(Ui.Check("Use presenter view when a second screen is connected", Settings.Current.PresenterView, v => { Settings.Current.PresenterView = v; Settings.Current.Save(); }));
         p.Children.Add(Ui.Text($"Settings and logs: {Settings.Folder}", 11.5, Palette.SubtleText));

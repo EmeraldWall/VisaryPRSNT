@@ -56,6 +56,8 @@ public enum TextRole { None, Title, Subtitle, Body, Caption }
 [JsonDerivedType(typeof(TextElement), "text")]
 [JsonDerivedType(typeof(ShapeElement), "shape")]
 [JsonDerivedType(typeof(ImageElement), "image")]
+[JsonDerivedType(typeof(TableElement), "table")]
+[JsonDerivedType(typeof(IconElement), "icon")]
 public abstract class SlideElement
 {
     public string Id { get; set; } = Ids.New();
@@ -68,6 +70,10 @@ public abstract class SlideElement
     public double Rotation { get; set; }
     public double Opacity { get; set; } = 1;
     public bool Locked { get; set; }
+    /// <summary>Hidden objects stay in the file but are not drawn (Selection pane).</summary>
+    public bool Hidden { get; set; }
+    /// <summary>Objects with the same group id select and move together.</summary>
+    public string? GroupId { get; set; }
 
     [JsonIgnore] public RectD Bounds => new(X, Y, Width, Height);
 
@@ -122,6 +128,48 @@ public sealed class ImageElement : SlideElement
     public double CornerRadius { get; set; }
     public Outline Outline { get; set; } = new();
     public override string KindName => "Picture";
+}
+
+public sealed class TableElement : SlideElement
+{
+    public List<List<string>> Rows { get; set; } = [];
+    public TextStyle Style { get; set; } = new() { FontSize = 24, VerticalAlign = VerticalAlign.Middle };
+    public bool HeaderRow { get; set; } = true;
+    public bool BandedRows { get; set; } = true;
+    public string HeaderFill { get; set; } = "#C43E1C";
+    public string HeaderTextColor { get; set; } = "#FFFFFF";
+    public string CellFill { get; set; } = "#FFFFFF";
+    public string BandFill { get; set; } = "#F3F2F1";
+    public string BorderColor { get; set; } = "#D2D0CE";
+    public double BorderWidth { get; set; } = 1;
+
+    public int ColumnCount => Rows.Count == 0 ? 0 : Rows.Max(r => r.Count);
+    public override string KindName => "Table";
+
+    public static TableElement Create(int rows, int cols)
+    {
+        var t = new TableElement();
+        for (var r = 0; r < rows; r++)
+            t.Rows.Add(Enumerable.Range(0, cols).Select(c => r == 0 ? $"Heading {c + 1}" : "").ToList());
+        return t;
+    }
+
+    /// <summary>Makes every row as long as the widest one.</summary>
+    public void Normalize()
+    {
+        var cols = Math.Max(1, ColumnCount);
+        if (Rows.Count == 0) Rows.Add([]);
+        foreach (var r in Rows) while (r.Count < cols) r.Add("");
+    }
+}
+
+/// <summary>A scalable icon from the Segoe Fluent Icons font that ships with Windows 11.</summary>
+public sealed class IconElement : SlideElement
+{
+    /// <summary>The icon's character, for example "\uE721".</summary>
+    public string Glyph { get; set; } = "\uE734";
+    public string Color { get; set; } = "#C43E1C";
+    public override string KindName => "Icon";
 }
 
 public static class Ids

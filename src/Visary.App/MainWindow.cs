@@ -1,3 +1,4 @@
+using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
@@ -12,7 +13,8 @@ using Visary.Core.Documents;
 using Visary.Core.Editing;
 using Visary.Core.Model;
 using Visary.Core.Themes;
-using Windows.System;
+using Windows.ApplicationModel.DataTransfer;
+using VirtualKey = Windows.System.VirtualKey;
 
 namespace Visary.App;
 
@@ -31,6 +33,14 @@ public sealed partial class MainWindow : Window
     Ribbon _ribbon = null!;
     bool _syncingNotes;
     bool _closingConfirmed;
+    readonly InfoBar _info = new() { IsOpen = false, IsClosable = true, Margin = new Thickness(16, 12, 16, 0), MaxWidth = 680, VerticalAlignment = VerticalAlignment.Top, HorizontalAlignment = HorizontalAlignment.Center };
+    readonly Grid _renderHost = new() { HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, IsHitTestVisible = false };
+    readonly ToggleSwitch _autoSave = new() { OnContent = null, OffContent = null, MinWidth = 0, Width = 44, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) };
+    DispatcherQueueTimer? _infoTimer;
+    DispatcherQueueTimer? _autoSaveTimer;
+    SlideSorter _sorter = null!;
+    bool _syncingAutoSave;
+    const string ClipboardFormat = "VisaryPRSNT.Objects";
     SlideShowWindow? _showWindow;
     PresenterWindow? _presenter;
 
@@ -44,6 +54,7 @@ public sealed partial class MainWindow : Window
         Content = Root;
         Title = "Visary PRSNT";
         Commands.Owner = this;
+        Commands.Notify = Notify;
         ExtendsContentIntoTitleBar = true;
         AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
         try { AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "Visary.ico")); } catch (Exception ex) { Log.Error("Icon", ex); }
@@ -51,13 +62,20 @@ public sealed partial class MainWindow : Window
 
         Palette.Apply(AppThemes.Get(Settings.Current.AppTheme));
         BuildLayout();
+        ApplyBackdrop(Settings.Current.Mica);
         SetTitleBar(_titleBar.Children[1] as UIElement);
         ApplyCaptionColors();
         Palette.Changed += () => { Root.RequestedTheme = Palette.ElementTheme; ApplyCaptionColors(); };
 
         Editor.Changed += OnChanged;
         AppWindow.Closing += OnClosing;
-        Root.Loaded += (_, _) => { Dialogs.Root = Root.XamlRoot; OnChanged(ChangeKind.All); };
+        Editor.Copied += OnCopied;
+        Root.Loaded += (_, _) =>
+        {
+            Dialogs.Root = Root.XamlRoot;
+            OnChanged(ChangeKind.All);
+            if (!Settings.Current.SeenTour && !Environment.GetCommandLineArgs().Contains("--selftest")) _ = TourAsync();
+        };
         StartAutoRecover();
     }
 
@@ -85,6 +103,23 @@ public sealed partial class MainWindow : Window
             Margin = new Thickness(12, 0, 10, 0),
         };
         var quick = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2, VerticalAlignment = VerticalAlignment.Center, Children = { logo } };
+        // Office style AutoSave: once the file has a location every change is saved a moment after it is made.
+        var autoLabel = Ui.Text("AutoSave", 12, Palette.TitleBarText);
+        autoLabel.Margin = new Thickness(0, 0, 6, 0);
+        _autoSave.IsOn = Settings.Current.AutoSave;
+        _autoSave.Toggled += async (_, _) =>
+        {
+            if (_syncingAutoSave) return;
+            var on = _autoSave.IsOn;
+            Settings.Current.AutoSave = on;
+            if (on && Editor.FilePath == null && !await Commands.SaveAsync(Editor)) Settings.Current.AutoSave = false;
+            Settings.Current.Save();
+            OnChanged(ChangeKind.None);
+            if (Settings.Current.AutoSave) ScheduleAutoSave();
+        };
+        ToolTipService.SetToolTip(_autoSave, "AutoSave saves your changes as you work, once the presentation is saved to a file");
+        quick.Children.Add(autoLabel);
+        quick.Children.Add(_autoSave);
         foreach (var (glyph, tip, action) in new (string, string, Action)[]
         {
             ("", "Save (Ctrl+S)", () => _ = Commands.SaveAsync(Editor)),
@@ -121,7 +156,11 @@ public sealed partial class MainWindow : Window
         _ribbon = new Ribbon(this);
         Grid.SetRow(_ribbon, 1);
         Root.Children.Add(_ribbon);
-        Side.PreviewTransition = Canvas.PreviewTransitionAsync;
+        Side.PreviewTransition = s => Canvas.PreviewTransitionAsync(s);
+        Side.CancelPreview = Canvas.CancelPreview;
+        Canvas.FormatRequested += () => Side.Mode = PaneMode.Format;
+        Canvas.SelectionPaneRequested += () => Side.Mode = PaneMode.Selection;
+        Canvas.PasteRequested += () => _ = PasteAsync();
         Side.PreviewBuilds = Canvas.PreviewBuildsAsync;
 
         _workspace.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(212) });
@@ -149,6 +188,18 @@ public sealed partial class MainWindow : Window
         _workspace.Children.Add(_center);
         Grid.SetColumn(Side, 2);
         _workspace.Children.Add(Side);
+        _center.Children.Add(_info);
+        _info.CloseButtonClick += (_, _) => _infoTimer?.Stop();
+
+        _sorter = new SlideSorter(Editor) { Visibility = Visibility.Collapsed };
+        _sorter.OpenRequested += () => SorterView = false;
+        Grid.SetColumnSpan(_sorter, 3);
+        _workspace.Children.Add(_sorter);
+
+        // Slides are laid out here, under the workspace, when they are captured for PDF and picture export.
+        Grid.SetRow(_renderHost, 2);
+        Root.Children.Add(_renderHost);
+        Commands.RenderHost = _renderHost;
         Grid.SetRow(_workspace, 2);
         Root.Children.Add(_workspace);
 
@@ -159,13 +210,19 @@ public sealed partial class MainWindow : Window
         _status.Foreground = Palette.SubtleText;
         statusBar.Children.Add(_status);
         var zoom = new Slider { Width = 140, Minimum = 10, Maximum = 400, Value = 50, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 4, 0) };
-        zoom.ValueChanged += (_, e) => { if (Math.Abs(e.NewValue - Canvas.Zoom * 100) > .5) Canvas.SetZoom(e.NewValue / 100); };
+        zoom.ValueChanged += (_, e) =>
+        {
+            if (SorterView) _sorter.TileWidth = 120 + e.NewValue * 1.2;
+            else if (Math.Abs(e.NewValue - Canvas.Zoom * 100) > .5) Canvas.SetZoom(e.NewValue / 100);
+        };
         Canvas.ZoomChanged += () => { _zoomLabel.Text = $"{Math.Round(Canvas.Zoom * 100)}%"; zoom.Value = Canvas.Zoom * 100; };
         _zoomLabel.Foreground = Palette.SubtleText;
         var notesToggle = Ui.Small("", "Notes", () => SetNotesVisible(_notesHost.Visibility != Visibility.Visible));
         var fit = Ui.Small("", null, () => Canvas.SetZoom(null), "Fit slide to window");
         var play = Ui.Small("", null, () => StartShow(Editor.CurrentIndex), "Slide show");
-        var right = Ui.Row(notesToggle, play, zoom, _zoomLabel, fit);
+        var normal = Ui.Small("\uE8A1", null, () => SorterView = false, "Normal");
+        var sorter = Ui.Small("\uF0E2", null, () => SorterView = true, "Slide Sorter");
+        var right = Ui.Row(notesToggle, normal, sorter, play, zoom, _zoomLabel, fit);
         Grid.SetColumn(right, 1);
         statusBar.Children.Add(right);
         Grid.SetRow(statusBar, 3);
@@ -209,7 +266,12 @@ public sealed partial class MainWindow : Window
     {
         var dirty = Editor.IsDirty ? " (unsaved)" : "";
         var name = Editor.FilePath != null ? Path.GetFileNameWithoutExtension(Editor.FilePath) : Editor.Doc.Title;
-        _title.Text = $"{name}{dirty} - Visary PRSNT";
+        var saving = Settings.Current.AutoSave && Editor.FilePath != null;
+        if (Editor.IsDirty && saving) dirty = "";
+        _title.Text = $"{name}{dirty}{(saving ? "  (AutoSave on)" : "")} - Visary PRSNT";
+        _syncingAutoSave = true;
+        _autoSave.IsOn = saving;
+        _syncingAutoSave = false;
         Title = _title.Text;
         _status.Text = $"Slide {Editor.CurrentIndex + 1} of {Editor.Doc.Slides.Count}     {Editor.Theme.Name}     {Core.Transitions.TransitionCatalog.Get(Editor.Current.Transition.Effect).Name} transition";
         if (k.HasFlag(ChangeKind.CurrentSlide) || k == ChangeKind.All || k.HasFlag(ChangeKind.Slides))
@@ -219,6 +281,214 @@ public sealed partial class MainWindow : Window
             _syncingNotes = false;
         }
         _zoomLabel.Text = $"{Math.Round(Canvas.Zoom * 100)}%";
+        if (Editor.IsDirty) ScheduleAutoSave();
+    }
+
+    void ScheduleAutoSave()
+    {
+        if (!Settings.Current.AutoSave || Editor.FilePath == null || !Editor.IsDirty) return;
+        if (_autoSaveTimer == null)
+        {
+            _autoSaveTimer = DispatcherQueue.CreateTimer();
+            _autoSaveTimer.Interval = TimeSpan.FromSeconds(2.5);
+            _autoSaveTimer.IsRepeating = false;
+            _autoSaveTimer.Tick += async (_, _) =>
+            {
+                if (Canvas.IsEditingText || _showWindow != null) { _autoSaveTimer.Start(); return; }
+                if (Editor.FilePath is { } path && Editor.IsDirty) await Commands.SaveToAsync(Editor, path, quiet: true);
+            };
+        }
+        _autoSaveTimer.Stop();
+        _autoSaveTimer.Start();
+    }
+
+    /* ---------------- notifications, backdrop and tour ---------------- */
+
+    /// <summary>Shows a short message in an InfoBar over the slide, closing itself after a few seconds.</summary>
+    public void Notify(string title, string message, bool success)
+    {
+        _info.Title = title;
+        _info.Message = message;
+        _info.Severity = success ? InfoBarSeverity.Success : InfoBarSeverity.Warning;
+        _info.IsOpen = true;
+        _infoTimer ??= DispatcherQueue.CreateTimer();
+        _infoTimer.Interval = TimeSpan.FromSeconds(success ? 5 : 10);
+        _infoTimer.IsRepeating = false;
+        _infoTimer.Tick -= CloseInfo;
+        _infoTimer.Tick += CloseInfo;
+        _infoTimer.Stop();
+        _infoTimer.Start();
+    }
+
+    void CloseInfo(DispatcherQueueTimer t, object o) => _info.IsOpen = false;
+
+    /// <summary>Mica lets the desktop colour tint the chrome on Windows 11. Windows 10 keeps solid colours.</summary>
+    public void ApplyBackdrop(bool mica)
+    {
+        var on = mica && MicaController.IsSupported();
+        SystemBackdrop = on ? new MicaBackdrop() : null;
+        Palette.Translucent = on;
+        Root.Background = on ? Palette.Transparent : Palette.Pane;
+        Palette.Apply(Palette.Current);
+        Settings.Current.Mica = mica;
+        Settings.Current.Save();
+    }
+
+    /// <summary>A short first run tour with TeachingTips pointing at the parts that make Visary different.</summary>
+    public async Task TourAsync()
+    {
+        await Task.Delay(900);
+        var steps = new (FrameworkElement? target, string title, string text, Action? onShow)[]
+        {
+            (_ribbon.HeaderFor(Shell.RibbonTab.Transitions), "Transitions are the star here",
+                "Silk, Dive, Parallax, Aurora and more: modern transitions built for elegance. Hover a tile to preview it live on your slide.",
+                () => _ribbon.Tab = Shell.RibbonTab.Transitions),
+            (Side, "Fine tune the feel", "Pick the motion (Smooth, Fluid, Spring) and intensity. Morph and Cascade animate each object on its own.", null),
+            (Canvas, "Right click for quick tools", "The mini toolbar has bold, duplicate, group, hide and the Selection pane. Ctrl+G groups, F1 lists every shortcut.", null),
+        };
+        foreach (var (target, title, text, onShow) in steps)
+        {
+            onShow?.Invoke();
+            var done = new TaskCompletionSource<bool>();
+            var tip = new TeachingTip
+            {
+                Title = title, Subtitle = text, Target = target, IsLightDismissEnabled = false, PreferredPlacement = TeachingTipPlacementMode.Auto,
+                ActionButtonContent = "Next", CloseButtonContent = "Skip tour", RequestedTheme = Palette.ElementTheme,
+                IconSource = new FontIconSource { Glyph = "\uE8AB", FontFamily = Ui.IconFont },
+            };
+            if (title == steps[^1].title) tip.ActionButtonContent = "Done";
+            tip.ActionButtonClick += (_, _) => { tip.IsOpen = false; done.TrySetResult(true); };
+            tip.CloseButtonClick += (_, _) => done.TrySetResult(false);
+            tip.Closed += (_, _) => done.TrySetResult(false);
+            Root.Children.Add(tip);
+            tip.IsOpen = true;
+            var next = await done.Task;
+            tip.IsOpen = false;
+            Root.Children.Remove(tip);
+            if (!next) break;
+        }
+        _ribbon.Tab = Shell.RibbonTab.Home;
+        Settings.Current.SeenTour = true;
+        Settings.Current.Save();
+    }
+
+    public async Task ShortcutsAsync()
+    {
+        var list = new (string keys, string what)[]
+        {
+            ("F5 / Shift+F5", "Present from the beginning / from this slide"), ("Ctrl+N, Ctrl+O, Ctrl+S", "New, open, save"), ("Ctrl+Shift+S", "Save as"),
+            ("Ctrl+M", "New slide"), ("Ctrl+Z / Ctrl+Y", "Undo / redo"), ("Ctrl+C, Ctrl+X, Ctrl+V", "Copy, cut, paste (pictures and text from other apps too)"),
+            ("Ctrl+D", "Duplicate"), ("Ctrl+G / Ctrl+Shift+G", "Group / ungroup"), ("Ctrl+A", "Select all"), ("Ctrl+B, Ctrl+I, Ctrl+U", "Bold, italic, underline"),
+            ("Ctrl+] / Ctrl+[", "Bring forward / send backward (add Shift for front and back)"), ("Arrows (Shift for 10 px)", "Nudge the selection"),
+            ("Alt+click", "Select one object inside a group"), ("Enter or F2", "Edit the selected text"), ("Ctrl+H", "Find and replace"), ("F1 or Ctrl+/", "This list"),
+            ("In the show: Space, arrows, B, W, Esc", "Next and previous, black or white screen, end"),
+        };
+        var grid = new Grid { ColumnSpacing = 18, RowSpacing = 6 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        for (var i = 0; i < list.Length; i++)
+        {
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var keys = Ui.Text(list[i].keys, 12.5, Palette.Text, bold: true);
+            var what = Ui.Text(list[i].what, 12.5, Palette.SubtleText, wrap: TextWrapping.Wrap);
+            Grid.SetRow(keys, i);
+            Grid.SetRow(what, i);
+            Grid.SetColumn(what, 1);
+            grid.Children.Add(keys);
+            grid.Children.Add(what);
+        }
+        await Dialogs.ShowAsync(new ContentDialog
+        {
+            Title = "Keyboard shortcuts", Content = new ScrollViewer { Content = grid, MaxHeight = 520, Width = 520 }, CloseButtonText = "Close", RequestedTheme = Palette.ElementTheme,
+        });
+    }
+
+    /* ---------------- views ---------------- */
+
+    /// <summary>Switches between Normal view (thumbnails, slide, task pane) and Slide Sorter.</summary>
+    public bool SorterView
+    {
+        get => _sorter.Visibility == Visibility.Visible;
+        set
+        {
+            if (value == SorterView) return;
+            Canvas.EndTextEdit(commit: true);
+            var normal = value ? Visibility.Collapsed : Visibility.Visible;
+            Slides.Visibility = normal;
+            _center.Visibility = normal;
+            Side.Visibility = normal;
+            _sorter.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+            if (value) _sorter.Rebuild();
+        }
+    }
+
+    /* ---------------- system clipboard ---------------- */
+
+    void OnCopied(string text)
+    {
+        try
+        {
+            // A private format marks our own objects; plain text lets other apps paste the words.
+            var data = new DataPackage { RequestedOperation = DataPackageOperation.Copy };
+            data.SetData(ClipboardFormat, Editor.Doc.Title);
+            if (text.Length > 0) data.SetText(text);
+            Clipboard.SetContent(data);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Clipboard copy", ex);
+        }
+    }
+
+    /// <summary>Pastes our own objects, or a picture, files or text copied in another app.</summary>
+    public async Task PasteAsync()
+    {
+        try
+        {
+            var view = Clipboard.GetContent();
+            if (view.Contains(ClipboardFormat) && Editor.CanPaste)
+            {
+                Editor.Paste();
+                return;
+            }
+            if (view.Contains(StandardDataFormats.StorageItems))
+            {
+                foreach (var item in await view.GetStorageItemsAsync())
+                    if (item is Windows.Storage.StorageFile f) await Commands.InsertPictureFileAsync(Editor, f.Path);
+                return;
+            }
+            if (view.Contains(StandardDataFormats.Bitmap))
+            {
+                var reference = await view.GetBitmapAsync();
+                using var source = await reference.OpenReadAsync();
+                var decoder = await Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(source);
+                using var bitmap = await decoder.GetSoftwareBitmapAsync(Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8, Windows.Graphics.Imaging.BitmapAlphaMode.Premultiplied);
+                using var png = new Windows.Storage.Streams.InMemoryRandomAccessStream();
+                var encoder = await Windows.Graphics.Imaging.BitmapEncoder.CreateAsync(Windows.Graphics.Imaging.BitmapEncoder.PngEncoderId, png);
+                encoder.SetSoftwareBitmap(bitmap);
+                await encoder.FlushAsync();
+                var bytes = new byte[png.Size];
+                png.Seek(0);
+                using (var reader = new Windows.Storage.Streams.DataReader(png.GetInputStreamAt(0)))
+                {
+                    await reader.LoadAsync((uint)png.Size);
+                    reader.ReadBytes(bytes);
+                }
+                Commands.InsertPictureBytes(Editor, bytes, "image/png");
+                return;
+            }
+            if (view.Contains(StandardDataFormats.Text))
+            {
+                var text = (await view.GetTextAsync()).Replace("\r\n", "\n").Trim();
+                if (text.Length > 0) Editor.InsertTextBox(text: text);
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Clipboard paste", ex);
+        }
+        Editor.Paste();
     }
 
     /* ---------------- keyboard ---------------- */
@@ -244,6 +514,7 @@ public sealed partial class MainWindow : Window
         if (ctrl && k == VirtualKey.N) { Handle(() => _ = NewAsync(Factory.CreatePresentation())); return; }
         if (ctrl && k == VirtualKey.M) { Handle(() => Editor.AddSlide()); return; }
         if (ctrl && k == VirtualKey.H) { Handle(() => _ = FindReplaceAsync()); return; }
+        if (k == VirtualKey.F1 || ctrl && k == (VirtualKey)191) { Handle(() => _ = ShortcutsAsync()); return; }
         if (_backstageHost.Visibility == Visibility.Visible)
         {
             if (k == VirtualKey.Escape) Handle(HideBackstage);
@@ -259,7 +530,8 @@ public sealed partial class MainWindow : Window
                 case VirtualKey.Y: Handle(Editor.Redo); break;
                 case VirtualKey.C: Handle(Editor.Copy); break;
                 case VirtualKey.X: Handle(Editor.Cut); break;
-                case VirtualKey.V: Handle(Editor.Paste); break;
+                case VirtualKey.V: Handle(() => _ = PasteAsync()); break;
+                case VirtualKey.G: Handle(shift ? Editor.Ungroup : Editor.Group); break;
                 case VirtualKey.D: Handle(Editor.DuplicateSelection); break;
                 case VirtualKey.A: Handle(Editor.SelectAll); break;
                 case VirtualKey.B: Handle(() => ToggleText(s => s.Bold = !s.Bold)); break;

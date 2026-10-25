@@ -9,6 +9,13 @@ public sealed class Settings
     public List<string> RecentFiles { get; set; } = [];
     public bool ShowNotes { get; set; } = true;
     public bool PresenterView { get; set; } = true;
+    /// <summary>Use the Mica material behind the window chrome (Windows 11).</summary>
+    public bool Mica { get; set; } = true;
+    /// <summary>Preview a transition on the canvas while hovering its tile.</summary>
+    public bool LivePreview { get; set; } = true;
+    /// <summary>Save every change automatically once the file has a location, like Office AutoSave.</summary>
+    public bool AutoSave { get; set; }
+    public bool SeenTour { get; set; }
 
     public static string Folder { get; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VisaryPRSNT");
     static string FilePath => Path.Combine(Folder, "settings.json");
